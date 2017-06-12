@@ -6,7 +6,7 @@ LDFLAGS = -L ../libs           				# path dove so trovano le librerie
 LIBS    = -lpthread -lserver -lthreadpool  -lqueue # vanno messe qui le librerie da linkare
 
 queue_obj = queue.o
-server_obj = server.o
+server_obj = server_init.o server_start.o
 threadpool_obj = threadpool.o
 
 #comando principale per il test attuale
@@ -18,7 +18,7 @@ lib:
 	make libserver.a
 
 #eseguibili test
-server: server_test.o
+server: server_test.o 
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS) $(LIBS)
 
 server_test.o:server_test.c
@@ -39,9 +39,11 @@ threadpool.o:threadpool.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $<
 	make libthreadpool.a
 
-server.o:server.c
+server_init.o:server_init.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $<
-	make libserver.a
+
+server_start.o:server_start.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c $<
 
 #creazioni librerie
 libqueue.a: $(queue_obj)

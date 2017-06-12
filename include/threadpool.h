@@ -1,5 +1,9 @@
 /**
- *  @brief Implementazione del THREADPOOL
+ *  @file threadpool.h
+ *  @brief Hader file del threadpool
+ *  @author Gionatha Sturba 531274
+ *  Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+ *  originale dell'autore
  */
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H

@@ -97,6 +97,7 @@ static void* thread_worker(void* arg)
         #ifdef DEBUG
             printf("%ld eseguo task\n",id);
         #endif
+        
         //eseguo il task
         (*(mytask->function))(mytask->arg);
 
