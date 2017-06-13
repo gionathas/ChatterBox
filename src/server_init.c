@@ -4,7 +4,7 @@
  * @author Gionatha Sturba 531274
  *  Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  *  originale dell'autore
- */ 
+ */
 
 #include<sys/types.h>
 #include<sys/socket.h>
@@ -17,9 +17,9 @@
 #include<sys/select.h>
 #include<sys/time.h>
 #include"server.h"
+#include"config.h"
 
 // lunghezza massima del path in Unix
-#define UNIX_PATH_MAX 108
 #define DEBUG
 
 server_t* init_server(char *sockname,size_t messageSize,int max_connection)

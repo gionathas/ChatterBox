@@ -5,6 +5,8 @@
  *  Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  *  originale dell'autore
  */
+#ifndef SERVER_H
+#define SERVER_H_
 
 #include<pthread.h>
 #include<sys/socket.h>
@@ -81,3 +83,5 @@ server_t* init_server(char *sockname,size_t messageSize,int max_connection);
  * @note Il server viene terminato con un segnale(SIGTERM,SIGQUIT,SIGINT).
  */
 int start_server(server_t *srv,int num_pool_thread,server_function_t funs);
+
+#endif //SERVER_H_

@@ -3,7 +3,7 @@
  *
  * Dipartimento di Informatica Università di Pisa
  * Docenti: Prencipe, Torquati
- * 
+ *
  */
 #ifndef CONNECTIONS_H_
 #define CONNECTIONS_H_
@@ -18,15 +18,15 @@
 
 /**
  * @file  connection.h
- * @brief Contiene le funzioni che implementano il protocollo 
+ * @brief Contiene le funzioni che implementano il protocollo
  *        tra i clients ed il server
  */
 
 /**
  * @function openConnection
- * @brief Apre una connessione AF_UNIX verso il server 
+ * @brief Apre una connessione AF_UNIX verso il server
  *
- * @param path Path del socket AF_UNIX 
+ * @param path Path del socket AF_UNIX
  * @param ntimes numero massimo di tentativi di retry
  * @param secs tempo di attesa tra due retry consecutive
  *
@@ -35,7 +35,7 @@
  */
 int openConnection(char* path, unsigned int ntimes, unsigned int secs);
 
-// -------- server side ----- 
+// -------- server side -----
 /**
  * @function readHeader
  * @brief Legge l'header del messaggio
@@ -43,8 +43,8 @@ int openConnection(char* path, unsigned int ntimes, unsigned int secs);
  * @param fd     descrittore della connessione
  * @param hdr    puntatore all'header del messaggio da ricevere
  *
- * @return <=0 se c'e' stato un errore 
- *         (se <0 errno deve essere settato, se == 0 connessione chiusa) 
+ * @return <=0 se c'e' stato un errore
+ *         (se <0 errno deve essere settato, se == 0 connessione chiusa)
  */
 int readHeader(long connfd, message_hdr_t *hdr);
 /**
@@ -55,7 +55,7 @@ int readHeader(long connfd, message_hdr_t *hdr);
  * @param data   puntatore al body del messaggio
  *
  * @return <=0 se c'e' stato un errore
- *         (se <0 errno deve essere settato, se == 0 connessione chiusa) 
+ *         (se <0 errno deve essere settato, se == 0 connessione chiusa)
  */
 int readData(long fd, message_data_t *data);
 
@@ -67,7 +67,7 @@ int readData(long fd, message_data_t *data);
  * @param data   puntatore al messaggio
  *
  * @return <=0 se c'e' stato un errore
- *         (se <0 errno deve essere settato, se == 0 connessione chiusa) 
+ *         (se <0 errno deve essere settato, se == 0 connessione chiusa)
  */
 int readMsg(long fd, message_t *msg);
 
@@ -77,7 +77,7 @@ int readMsg(long fd, message_t *msg);
 // ------- client side ------
 /**
  * @function sendRequest
- * @brief Invia un messaggio di richiesta al server 
+ * @brief Invia un messaggio di richiesta al server
  *
  * @param fd     descrittore della connessione
  * @param msg    puntatore al messaggio da inviare
