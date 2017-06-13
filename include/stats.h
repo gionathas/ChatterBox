@@ -1,5 +1,5 @@
-#if !defined(MEMBOX_STATS_)
-#define MEMBOX_STATS_
+#if !defined(SERVER_STATS_)
+#define SERVER_STATS_
 
 #include <stdio.h>
 #include <time.h>
@@ -42,4 +42,4 @@ static inline int printStats(FILE *fout) {
     return 0;
 }
 
-#endif /* MEMBOX_STATS_ */
+#endif /* SERVER_STATS_ */

@@ -2,8 +2,8 @@
  * @file server.h
  * @brief Header file del server
  * @author Gionatha Sturba 531274
- *  Si dichiara che il contenuto di questo file e' in ogni sua parte opera
- *  originale dell'autore
+ * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+ * originale dell'autore
  */
 #ifndef SERVER_H
 #define SERVER_H_
