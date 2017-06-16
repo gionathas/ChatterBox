@@ -1,59 +1,12 @@
-CC	= gcc -std=c99   						# quale compilatore usare per compilare il codice
-CFLAGS	= -g -Wall       					# flags passati al compilatore per debugging e warning etc..
-OPTFLAGS= -O3           					 # flags passati al compilatore per ottimizzazione del codice
-INCLUDES= -I ../include        				 # path dove si trovano gli include (non di sistema)
-LDFLAGS = -L ../libs           				# path dove so trovano le librerie
-LIBS    = -lpthread -lserver -lthreadpool  -lqueue # vanno messe qui le librerie da linkare
+all:server client
 
-queue_obj = queue.o
-server_obj = server_init.o server_start.o
-threadpool_obj = threadpool.o
-
-#comando principale per il test attuale
-test:server client
-
-lib:
-	make libqueue.a
-	make libthreadpool.a
-	make libserver.a
-
-#eseguibili test
-server: server_test.o 
-	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS) $(LIBS)
+server: server_test.o
+	gcc -g -Wall -std=c99 -I ../../../include server_test.o -o server -L ../../../libs -lserver -lqueue -lpthread -lthreadpool
 
 server_test.o:server_test.c
-	$(CC) $(CFLAGS) $(INCLUDES)  -c $<
+	gcc -g -Wall -I ../../../include -c server_test.c
 
-client: client_test.o
-	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS) $(LIBS)
-
+client:client_test.o
+	gcc -g -Wall -std=c99 -I ../../../include client_test.o -o client
 client_test.o:client_test.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $<
-
-#oggetti librerie
-queue.o:queue.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $<
-	make libqueue.a
-
-threadpool.o:threadpool.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $<
-	make libthreadpool.a
-
-server_init.o:server_init.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $<
-
-server_start.o:server_start.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $<
-
-#creazioni librerie
-libqueue.a: $(queue_obj)
-	ar rvs $@ $^
-	mv $@ ../libs
-
-libthreadpool.a: $(threadpool_obj)
-	ar rvs $@ $^
-	mv $@ ../libs
-
-libserver.a: $(server_obj)
-	ar rvs $@ $^
-	mv $@ ../libs
+	gcc -g -Wall -I ../../../include -c client_test.c

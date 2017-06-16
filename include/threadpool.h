@@ -13,11 +13,9 @@
 
 /* numero massimo di thread creabili,non eccedere con questo valore. */
 #define MAX_THREAD 64
+#define THREAD_FAILED 2 //per indicare l'errore di ritono quando un thread del pool e' fallito
 
 /* GESTIONE ERRORI THREADPOOL */
-
-/* Errore particolare del threadpool,che puo essere ritornato nella destroy */
-#define E_SHUTDOWN_ALREADY_STARTED 1
 
 //handler per la gestione degli errori nel threadpool
 #define TP_ERROR_HANDLER_1(err,ret)   \
@@ -58,9 +56,10 @@ typedef struct queue_task{
  * @var arg argomento della funzione.
  */
 typedef struct task{
-    void (*function)(void*);
+    int (*function)(void*);
     void *arg;
 }task_t;
+
 
 /**
  * @struct threadpool
@@ -77,7 +76,7 @@ typedef struct threadpool{
     pthread_t *threads;
     size_t threads_in_pool;
     pthread_mutex_t mtx;
-    unsigned short int shutdown; //1 in chiusura, 0 altrimenti
+    unsigned short shutdown;
 }threadpool_t;
 
 /**
@@ -98,7 +97,8 @@ threadpool_t *threadpool_create(int thread_in_pool);
  *
  * @note @param pool,viene passato questo puntatore per una corretta deallocazione
  *
- * @return On success ritorna 0,altrimenti -1 e setta errno,oppure E_SHUTDOWN_ALREADY_STARTED
+ * @return On success ritorna 0,-1 se c'e' un errore nella destroy e setta errno.
+ * @note Caso particolare: RItorna 1 se un thread del pool fallisce.
  */
 int threadpool_destroy(threadpool_t **pool);
 
@@ -114,6 +114,6 @@ int threadpool_destroy(threadpool_t **pool);
  *
  * @note la funzione e l'argomento diverrano poi un task.
  */
-int threadpool_add_task(threadpool_t *tp,void (*function)(void *),void* arg);
+int threadpool_add_task(threadpool_t *tp,int (*function)(void *),void* arg);
 
 #endif /* THREAD_POOL_H */

@@ -62,13 +62,13 @@ static server_t *server;
 static descriptor_queue_t descriptors;
 
 /* Funzioni globali */
-static void (*client_manager_fun)(void *,int,void*);
+static int (*client_manager_fun)(void *,int,void*);
 static void *arg_cmf;
 
-static void (*signal_usr_handler)(void*);//argomenti
+static int (*signal_usr_handler)(void*);//argomenti
 static void *arg_suh;
 
-static void (*client_out_of_bound)(int,void*);
+static int (*client_out_of_bound)(int,void*);
 static void *arg_cob;
 
 static int (*read_message_fun)(int,void*);
@@ -400,26 +400,55 @@ static int update_active_set(fd_set *active_set,int *actual_client,int *max_fd)
  * @param wa_args insieme degli argomenti per i thread del pool
  * @note non facciamo controllo errori essendo in fase di chiusura
  */
-static void server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
+static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
 {
     #ifdef DEBUG
         printf("Avviata terminazione server\n");
     #endif
 
+    int err;
+
     close_all_client(max_fd,active_set);
     free(wa_args);
 
-    pthread_mutex_destroy(&descriptors.mtx);
+    err = pthread_mutex_destroy(&descriptors.mtx);
+
+    if(err)
+    {
+        errno = err;
+        return -1;
+    }
 
     destroy_queue(&descriptors.queue);
 
-    threadpool_destroy(&server->threadpool);
+    err = threadpool_destroy(&server->threadpool);
 
-    //rimuovo indirizzo fisico
-    unlink(server->sa.sun_path);
+    //errore desotroy
+    if(err == -1)
+    {
+        return -1;
+    }
+    else if(err == THREAD_FAILED)//caso in cui un thread del pool e' fallito
+    {
+        return THREAD_FAILED;
+    }
+    else{//continuo chiusura
 
-    close(server->fd);
-    free(server);
+        //rimuovo indirizzo fisico
+        err = unlink(server->sa.sun_path);
+
+        //errore unlink
+        if(err == -1)
+        {
+            return -1;
+        }
+
+        close(server->fd);
+        free(server);
+    }
+
+    //tutto ok,ritorno 0;
+    return 0;
 }
 
 /**
@@ -428,7 +457,7 @@ static void server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
   * @param arg argomenti per il thread worker
   * @note in caso di errore stampa a video l'errore, e manda un segnale di terminazione al server
   */
-static void init_worker(void *arg)
+static int init_worker(void *arg)
 {
     int err;
     void *buff,*err2; //buffer e gestione errori
@@ -447,7 +476,7 @@ static void init_worker(void *arg)
     //allocazione andata male
     if(buff == NULL)
     {
-        goto work_error;
+        return -1;
     }
     else
     {
@@ -470,7 +499,13 @@ static void init_worker(void *arg)
         else
         {
             //funzione per la gestione del client
-            (*(client_manager_fun))(buff,wa->fd_client,arg_cmf);
+            rc = (*(client_manager_fun))(buff,wa->fd_client,arg_cmf);
+
+            //errore funzione
+            if(rc == -1)
+            {
+                goto work_error;
+            }
 
             //faccio risettare questo fd,perche' potrebbe inviare nuove richieste.
             elem.op = SET;
@@ -521,14 +556,12 @@ static void init_worker(void *arg)
     free(buff);
 
     //la funzione termina qui
-    return;
+    return 0;
 
 //handler errori:
 work_error:
-    perror("pool-thread:");
-    //segnalo al listener che c'e' stato un errore e dobbiamo terminare
-    kill(getpid(),SIGTERM);
-    return;
+    free(buff);
+    return -1;
 }
 
  /**
@@ -694,7 +727,14 @@ static void* listener(void *arg)
                      if(actual_client > server->max_connection)
                      {
                          //procedura per buttare fuori un client
-                         (*(client_out_of_bound))(fd,arg_cob);
+                         err = (*(client_out_of_bound))(fd,arg_cob);
+
+                         //errore nella funzione
+                         if(err == -1)
+                         {
+                             curr_error = errno;
+                             goto lst_error4;
+                         }
 
                          //lo tolgo dal set
                          FD_CLR(fd_client,&active_set);
@@ -761,12 +801,28 @@ static void* listener(void *arg)
      }//fine del while
 
      //se sono arrivato qui allora il listener deve terminare,deallocando tutto
-     server_close(max_fd,&active_set,wa_args);
 
-     //qui termina la funzione
-     pthread_exit((void*)EXIT_SUCCESS);
+    //termino normalmente
+    err = server_close(max_fd,&active_set,wa_args);
 
- //handler errori listener
+    //controllo esito terminazione
+    if(err == -1)
+    {
+        //errore nella server_close
+        pthread_exit((void*)EXIT_FAILURE);
+    }
+    else if(err == THREAD_FAILED)
+    {
+        //un thread del pool e' fallito
+        pthread_exit((void*)THREAD_FAILED);
+    }
+    else{
+        //tutto andato bene
+        //qui termina la funzione
+        pthread_exit((void*)EXIT_SUCCESS);
+    }
+
+//handler errori listener
  lst_error4:
      close_all_client(max_fd,&active_set);
      free(wa_args);

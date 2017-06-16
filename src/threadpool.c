@@ -3,9 +3,11 @@
 #include<errno.h>
 #include<stdio.h>
 #include<unistd.h>
+#include<signal.h>
 #include"threadpool.h"
 #include"macro_error.h"
 #include"queue.h"
+
 
 /*Definisco lo scheduling FIFO per la coda dei task */
 static const q_mode_t task_scheduler = FIFO;
@@ -17,7 +19,12 @@ static const q_mode_t task_scheduler = FIFO;
  * @brief Comportamento di un thread del threadpool.
  *
  * @param arg argomento della funzione(in questo caso gli viene passato il threadpool)
- * @return EXIT_SUCCESS, altrimenti EXIT_FAILURE e stampa l'errore sullo stdout.
+ * @return EXIT_SUCCESS altrimenti EXIT_FAILURE e stampa l'errore sullo stdout.
+ *
+ * @note Nel caso falliscoa un thread del threadpool,allora si incorre in una terminazione
+ * immediata di tutto il threadpool.Il modo in cui e' stata ottenuta questa terminazione
+ * e' terminare (SIGINT) tutto il processo,stampando sullo stdout il messaggio di errore con cui il
+ * il thread e' fallito.
  */
 static void* thread_worker(void* arg)
 {
@@ -31,17 +38,33 @@ static void* thread_worker(void* arg)
     //cast dell'argomento
     threadpool_t *tp = (threadpool_t*)arg;
     task_t *mytask;
+    int err;
 
     //fin quando non avviene lo shutdown
     while(1)
     {
         //prendo sia la lock della coda dei task
-        th_error(pthread_mutex_lock(&tp->task_queue->mtx),"39 thread: on lock mutex of task queue");
+        err = pthread_mutex_lock(&tp->task_queue->mtx);
+
+        //errore lock
+        if(err)
+        {
+            errno = err;
+            goto immediate_termination;
+        }
 
         //prendo la lock del threadpool per controllare se stiamo terminando
-        th_error(pthread_mutex_lock(&tp->mtx),"42 thread: on lock threadpool mutex");
+        err = pthread_mutex_lock(&tp->mtx);
 
-        //fin quando non ci sono task e lo shutdown non e' stato avviato
+        //errore lock
+        if(err)
+        {
+            pthread_mutex_unlock(&tp->task_queue->mtx);
+            errno = err;
+            goto immediate_termination;
+        }
+
+        //fin quando non ci sono task e lo shutdown normale non e' stato avviato
         while (tp->task_queue->queue->size == 0 && tp->shutdown == 0)
         {
             //non stiamo terminano lascio il mutex del threadpool
@@ -53,10 +76,26 @@ static void* thread_worker(void* arg)
             #endif
 
             //mi metto in attesa sulla coda dei task
-            th_error(pthread_cond_wait(&tp->task_queue->cond,&tp->task_queue->mtx),"44 thread: on wait on cond queue");
+            err = pthread_cond_wait(&tp->task_queue->cond,&tp->task_queue->mtx);
+
+            //errore wait
+            if(err)
+            {
+                pthread_mutex_unlock(&tp->task_queue->mtx);
+                errno = err;
+                goto immediate_termination;
+            }
 
             //riprendo la lock del pool per la condizione del while
-            th_error(pthread_mutex_lock(&tp->mtx),"59 thread: on lock threadpool mutex");
+            err = pthread_mutex_lock(&tp->mtx);
+
+            //errore lock
+            if(err)
+            {
+                pthread_mutex_unlock(&tp->task_queue->mtx);
+                errno = err;
+                goto immediate_termination;
+            }
 
         }
 
@@ -79,15 +118,10 @@ static void* thread_worker(void* arg)
         mytask = pop_queue(tp->task_queue->queue);
 
         //errore nell'estrazione
-
         if(mytask == NULL)
         {
-            #ifdef DEBUG
-                printf("%ld  estrazione andata male\n",id);
-            #endif
             pthread_mutex_unlock(&tp->task_queue->mtx);
-
-            th_null(mytask,"90 thread: on pop task");
+            goto immediate_termination;
         }
 
         //nessun errore,rilascio mutex della coda, e decremento la size della coda
@@ -97,9 +131,15 @@ static void* thread_worker(void* arg)
         #ifdef DEBUG
             printf("%ld eseguo task\n",id);
         #endif
-        
-        //eseguo il task
-        (*(mytask->function))(mytask->arg);
+
+        //eseguo il task,rc mi ritorna esito della funzione
+        int rc = (*(mytask->function))(mytask->arg);
+
+        //errore funzione
+        if(rc == -1)
+        {
+            goto immediate_termination;
+        }
 
         #ifdef DEBUG
             printf("%ld finito task\n",id);
@@ -111,6 +151,15 @@ static void* thread_worker(void* arg)
 
     //..e termino
     pthread_exit((void*)EXIT_SUCCESS);
+
+immediate_termination:
+    //stampo errore a video
+    perror("THREADPOOL: thread failed");
+    //Mando un segnale di terminazione immediata
+    kill(getpid(),SIGTERM);
+    //faccio anche una eventuale exit failure
+    pthread_exit((void*)EXIT_FAILURE);
+
 }
 
 /**
@@ -200,10 +249,16 @@ static int free_task_queue(queue_task_t *Q)
 /**
  * @function join_threads
  * @brief Fa la join dei threads del pool
+ *
+ * @return 0 tutto andato bene,altrimenti -1 e setta errno se c'e' stato un errore,
+ * oppure 1 per indicare che un thred del pool e' fallito,ma la deallocazione del threadpool
+ * e' avvenuta correttamente
  */
 static int join_threads(threadpool_t *tp)
 {
     int err;
+    int status;
+    int thread_failed = 0; //settato se un thread e' terminato con exit failure
 
     //prima di fare la join sveglio eventuali thread bloccati sulla coda dei task
     err = pthread_mutex_lock(&tp->task_queue->mtx);
@@ -221,13 +276,20 @@ static int join_threads(threadpool_t *tp)
     //faccio il join
     for (size_t i = 0; i < tp->threads_in_pool; i++)
     {
-        err = pthread_join(tp->threads[i], NULL);
+        err = pthread_join(tp->threads[i],(void*)&status);
 
         //controllo errore nella join
         TP_RETURN_ERR_CODE(err);
+
+        if(status == EXIT_FAILURE)
+            thread_failed = 1;
     }
 
-    return 0;
+    //ritorno 0 se tutti i thread sono terminati correttamente,altrimenti THREAD_FAILED
+    if(!thread_failed)
+        return 0;
+    else
+        return THREAD_FAILED;
 }
 
 /* Funzioni Interfaccia */
@@ -249,7 +311,7 @@ threadpool_t *threadpool_create(int thread_in_pool)
     if(pool == NULL)
         return NULL;
 
-    //creazione coda dei task
+    //creazione coda dei task5
     pool->task_queue = create_task_queue(pool);
 
     if(pool->task_queue == NULL)
@@ -311,6 +373,7 @@ int threadpool_destroy(threadpool_t **pool)
     #endif
 
     int err = 0;
+    int thread_failed = 0;//settato se un thread del pool e' terminato malamente
 
     //threadpool non valido
     if(*pool == NULL)
@@ -330,13 +393,19 @@ int threadpool_destroy(threadpool_t **pool)
     //possibile errore nella lock,@note posso ritornare subito perche' non ho fatto la lock
     TP_ERROR_HANDLER_1(err,-1);
 
-    //shutdown gia' partito ?
+    //shutdown gia' partito
     if((*pool)->shutdown == 1)
-        err = E_SHUTDOWN_ALREADY_STARTED;
-
-    //setto lo shutdown normale
-    if(!err)
+    {
+        errno = EINPROGRESS;
+        return -1;
+    }
+    else
+    {
+        //setto shutdown
         (*pool)->shutdown = 1;
+    }
+
+    //nel caso in cui un thread sia fallito ed abbia chiamato la destroy,i passi sono li stessi
 
     //la lock non puo' fallire,se sono arrivato qui possiedo sicuramente il mutex
     pthread_mutex_unlock( (&(*pool)->mtx) );
@@ -345,12 +414,6 @@ int threadpool_destroy(threadpool_t **pool)
         fflush(stdout);
         printf("DESTROY: rilascio lock pool mutex\n");
     #endif
-
-    //errore nello shutdown,va gestito in questo modo
-    if(err)
-    {
-        return E_SHUTDOWN_ALREADY_STARTED;
-    }
 
     #ifdef DEBUG
         fflush(stdout);
@@ -393,6 +456,10 @@ int threadpool_destroy(threadpool_t **pool)
     //controllo errore  nella join
     TP_ERROR_HANDLER_1(err,-1);
 
+    //uno o piu' thread del pool sono falliti
+    if(err == THREAD_FAILED)
+        thread_failed = 1;
+
     //dealloco spazio dei thread del pool
     free((*pool)->threads);
 
@@ -412,10 +479,13 @@ int threadpool_destroy(threadpool_t **pool)
     free(*pool);
     *pool = NULL;
 
-    return 0;
+    if(!thread_failed)
+        return 0;
+    else
+        return THREAD_FAILED;
 }
 
-int threadpool_add_task(threadpool_t *tp,void (*function)(void *),void* arg)
+int threadpool_add_task(threadpool_t *tp,int (*function)(void *),void* arg)
 {
     int err;
     void *err2;
@@ -437,7 +507,9 @@ int threadpool_add_task(threadpool_t *tp,void (*function)(void *),void* arg)
     if(tp->shutdown != 0)
     {
         pthread_mutex_unlock(&tp->mtx);
-        return E_SHUTDOWN_ALREADY_STARTED;
+        //ritorno questo errno se siamo in fase di chiusura
+        errno = EPERM;
+        return -1;
     }
 
     pthread_mutex_unlock(&tp->mtx);

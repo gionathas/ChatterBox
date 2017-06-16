@@ -9,7 +9,7 @@
 
 int real_read_message(int fd,char* mess);
 
-static void gestioneClient(void *buff,int fd,void *arg)
+static int gestioneClient(void *buff,int fd,void *arg)
 {
     char string[STRING_LEN];
     int i = 0;
@@ -28,6 +28,9 @@ static void gestioneClient(void *buff,int fd,void *arg)
     }
 
     write(fd,string,STRING_LEN * sizeof(char));
+    
+
+    return 0;
 }
 
 static int readMessage(int fd,void *message)
@@ -47,16 +50,18 @@ int real_read_message(int fd,char* mess)
         return nread;
 }
 
-static void gestioneTroppiClient(int fd,void *arg)
+static int gestioneTroppiClient(int fd,void *arg)
 {
     char err_mess[] = "Server pieno";
 
     write(fd,err_mess,STRING_LEN * sizeof(char));
+
+    return 0;
 }
 
-static void sigusr1(void *arg)
+static int sigusr1(void *arg)
 {
-    printf("Ciao sono sigusr\n");
+    return -1;
 }
 
 int main()

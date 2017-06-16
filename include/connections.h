@@ -97,6 +97,17 @@ int sendRequest(long fd, message_t *msg);
  */
 int sendData(long fd, message_data_t *msg);
 
+/**
+ * @function sendHeader
+ * @brief Invia l'header del messaggio
+ * @param fd descrittore della connessione
+ * @param puntatore all'header da inviare
+ *
+ * @return 0, altrimenti -1 e setta errno
+ */
+int sendHeader(long fd,message_hdr_t *hdr);
+
+
 
 /* da completare da parte dello studente con eventuali altri metodi di interfaccia */
 

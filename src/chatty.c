@@ -48,6 +48,7 @@ static server_signalusr1_handler(void* file)
     return printStats((FILE*)file);
 }
 
+
 int main(int argc, char *argv[])
 {
     server_t *server; //istanza del server

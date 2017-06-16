@@ -48,12 +48,12 @@ typedef struct server{
  * @var arg_cob argomenti per la funzione client_out_of_bound
  */
 typedef struct{
-    void (*client_manager_fun)(void *,int,void*); // 1 buffer,2 fd_client,3 arg
+    int (*client_manager_fun)(void *,int,void*); // 1 buffer,2 fd_client,3 arg
     void *arg_cmf;
     int (*read_message_fun)(int,void*); //1 fd client, 2 buffer
-    void (*signal_usr_handler)(void*);//solo argomenti
+    int (*signal_usr_handler)(void*);//solo argomenti
     void *arg_suh;
-    void (*client_out_of_bound)(int,void*);//1 fd, 2 argomenti
+    int (*client_out_of_bound)(int,void*);//1 fd, 2 argomenti
     void *arg_cob;
 }server_function_t;
 

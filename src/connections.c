@@ -159,6 +159,19 @@ int sendData(long fd, message_data_t *msg)
     return 0;
 }
 
+int sendHeader(long fd,message_hdr_t *hdr)
+{
+    //controllo parametri
+    if( fd < 0 || hdr == NULL)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    //mando header
+    return write(fd,hdr,sizeof(message_hdr_t));
+}
+
 int sendRequest(long fd, message_t *msg)
 {
     int rc;
@@ -170,10 +183,9 @@ int sendRequest(long fd, message_t *msg)
         return -1;
     }
 
-    //mando header
-    rc = write(fd,&msg->hdr,sizeof(message_hdr_t));
+    rc = sendHeader(fd,&msg->hdr);
 
-    if(rc < 0)
+    if(rc == -1)
         return -1;
 
     //mando data del messaggio

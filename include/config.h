@@ -16,6 +16,11 @@
 #define MAX_NAME_LENGTH 32
 #define UNIX_PATH_MAX 64
 
+//Salva la configurazione attuale del server
+typedef struct{
+    //TODO
+}server_info_t;
+
 // to avoid warnings like "ISO C forbids an empty translation unit"x
 typedef int make_iso_compilers_happy;
 
