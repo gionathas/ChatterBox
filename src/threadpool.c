@@ -1,3 +1,4 @@
+#define _POSIX_SOURCE
 #include<stdlib.h>
 #include<pthread.h>
 #include<errno.h>
@@ -7,7 +8,6 @@
 #include"threadpool.h"
 #include"macro_error.h"
 #include"queue.h"
-
 
 /*Definisco lo scheduling FIFO per la coda dei task */
 static const q_mode_t task_scheduler = FIFO;
