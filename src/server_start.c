@@ -395,10 +395,14 @@ static int update_active_set(fd_set *active_set,int *actual_client,int *max_fd)
 /**
  * @function server_close
  * @brief Termina il server,deallocando tutto
+ *
  * @param max_fd indice massimo dei descrittori attivi
  * @param active_set insieme dei descrittori controllati
  * @param wa_args insieme degli argomenti per i thread del pool
- * @note non facciamo controllo errori essendo in fase di chiusura
+ *
+ * @return 0 tutto andato a buon fine,oppure -1 e setta errno qualcosa andato male,
+ *         oppure 1 per indicare che un thread del pool e' fallito ma la chiusura del
+ *         server e' avvenuta correttamente.
  */
 static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
 {
@@ -447,7 +451,7 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
         close(server->fd);
         free(server);
 
-        //tutto ok,ritorno 0;
+        //ritorno stato di thread failed.
         return thread_failed;
     }
 }
@@ -567,7 +571,9 @@ work_error:
   * @function listener
   * @brief Funzione che deve eseguire il listener_thread
   * @param arg argomenti per il listener
-  * @return EXIT_SUCCESS,altrimenti EXIT_FAILURE settando errno,al main thread che fara' la join
+  *
+  * @return EXIT_SUCCESS tutto andato bene,oppure THREAD_FAILED indica che un thread e' fallito,
+  *         oppure EXIT_FAILURE qualcosa e' andato male.
   */
 static void* listener(void *arg)
 {
@@ -815,9 +821,8 @@ static void* listener(void *arg)
     {
         pthread_exit((void*)THREAD_FAILED);
     }
+    //tutto andato bene
     else{
-        //tutto andato bene
-        //qui termina la funzione
         pthread_exit((void*)EXIT_SUCCESS);
     }
 

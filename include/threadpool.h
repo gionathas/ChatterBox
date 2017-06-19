@@ -13,9 +13,11 @@
 
 /* numero massimo di thread creabili,non eccedere con questo valore. */
 #define MAX_THREAD 64
-#define THREAD_FAILED 2 //per indicare l'errore di ritono quando un thread del pool e' fallito
 
 /* GESTIONE ERRORI THREADPOOL */
+
+/* Per indicare l'errore di ritono quando un thread del pool e' fallito */
+#define THREAD_FAILED 2
 
 //handler per la gestione degli errori nel threadpool
 #define TP_ERROR_HANDLER_1(err,ret)   \
@@ -54,6 +56,7 @@ typedef struct queue_task{
  *
  * @var function funzione che deve essere eseguita dal thread
  * @var arg argomento della funzione.
+ * @note la funzione ritorna un int per segnalare l'esito.
  */
 typedef struct task{
     int (*function)(void*);
@@ -97,8 +100,9 @@ threadpool_t *threadpool_create(int thread_in_pool);
  *
  * @note @param pool,viene passato questo puntatore per una corretta deallocazione
  *
- * @return On success ritorna 0,-1 se c'e' un errore nella destroy e setta errno.
- * @note Caso particolare: RItorna 1 se un thread del pool fallisce.
+ * @return On success ritorna 0. Oppure  -1 se c'e' un errore nella destroy e setta errno.
+ * @note Caso particolare: RItorna THREAD_FAILED se un thread del pool fallisce,ma la deallocazione
+ *       e' avvenuta corretamente.
  */
 int threadpool_destroy(threadpool_t **pool);
 
@@ -110,7 +114,7 @@ int threadpool_destroy(threadpool_t **pool);
  * @param function funzione da eseguire
  * @param arg argomento della funzione
  *
- * @return 0 on success,altrimenti -1 e setta errno,oppure E_SHUTDOWN_ALREADY_STARTED
+ * @return 0 on success,altrimenti -1 e setta errno
  *
  * @note la funzione e l'argomento diverrano poi un task.
  */

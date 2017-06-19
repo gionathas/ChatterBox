@@ -1,5 +1,6 @@
 #include"server.h"
 #include<stdio.h>
+#include<stdlib.h>
 #include<ctype.h>
 #include<unistd.h>
 #include<string.h>
@@ -73,20 +74,35 @@ int main()
         return -1;
     }
 
-
     //creo funzioni per il server
     server_function_t funs;
+
     //funzione gestione client e argomenti
     funs.client_manager_fun = gestioneClient;
     funs.arg_cmf = NULL;
 
     funs.read_message_fun = readMessage;
+
     funs.client_out_of_bound = gestioneTroppiClient;
     funs.arg_cob = NULL;
 
     funs.signal_usr_handler = sigusr1;
     funs.arg_suh = NULL;
 
-    return  start_server(server,2,funs);
+    int rc = start_server(server,2,funs);
 
+    //gestisco tutti i casi di errore
+    if(rc == -1 || rc == 1)
+    {
+        //gestione errore non riguardante il fallimento dei thread
+        if(rc == -1)
+        {
+            perror("server fail:");
+        }
+
+        exit(EXIT_FAILURE);
+    }
+
+    //tutto andato a buon fine
+    exit(EXIT_SUCCESS);
 }

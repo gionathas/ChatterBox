@@ -9,8 +9,6 @@
 #include"macro_error.h"
 #include"queue.h"
 
-#define DEBUG
-
 /*Definisco lo scheduling FIFO per la coda dei task */
 static const q_mode_t task_scheduler = FIFO;
 
@@ -25,7 +23,7 @@ static int thread_failed = 0;//flag per segnalare quando un thread e' fallito
  * @param arg argomento della funzione(in questo caso gli viene passato il threadpool)
  * @return EXIT_SUCCESS altrimenti EXIT_FAILURE e stampa l'errore sullo stdout.
  *
- * @note Nel caso falliscoa un thread del threadpool,allora si incorre in una terminazione
+ * @note Nel caso fallisca un thread del threadpool,allora si incorre in una terminazione
  * immediata di tutto il threadpool.Il modo in cui e' stata ottenuta questa terminazione
  * e' terminare (SIGINT) tutto il processo,stampando sullo stdout il messaggio di errore con cui il
  * il thread e' fallito.
@@ -255,7 +253,7 @@ static int free_task_queue(queue_task_t *Q)
  * @brief Fa la join dei threads del pool
  *
  * @return 0 tutto andato bene,altrimenti -1 e setta errno se c'e' stato un errore,
- * oppure 1 per indicare che un thred del pool e' fallito,ma la deallocazione del threadpool
+ * oppure THREAD_FAILED per indicare che un thread del pool e' fallito,ma la deallocazione del threadpool
  * e' avvenuta correttamente
  */
 static int join_threads(threadpool_t *tp)
@@ -269,6 +267,7 @@ static int join_threads(threadpool_t *tp)
     //controllo errore lock coda dei task
     TP_ERROR_HANDLER_1(err,-1);
 
+    //sveglio eventuali thread bloccati sulla coda dei task
     err = pthread_cond_broadcast(&tp->task_queue->cond);
 
     pthread_mutex_unlock(&tp->task_queue->mtx);
@@ -276,7 +275,7 @@ static int join_threads(threadpool_t *tp)
     //controllo errore nel broadcast
     TP_ERROR_HANDLER_1(err,-1);
 
-    //faccio il join
+    //faccio il join di tutti i thread,e controllo lo stato con cui terminano
     for (size_t i = 0; i < tp->threads_in_pool; i++)
     {
         err = pthread_join(tp->threads[i],(void*)&status);
@@ -284,6 +283,7 @@ static int join_threads(threadpool_t *tp)
         //controllo errore nella join
         TP_ERROR_HANDLER_1(err,-1);
 
+        //se un thread e' fallito setto il flag thread_failed
         if(status == EXIT_FAILURE)
             thread_failed = 1;
 
@@ -380,7 +380,7 @@ int threadpool_destroy(threadpool_t **pool)
     #endif
 
     int err = 0;
-    int thread_failed = 0;//settato se un thread del pool e' terminato malamente
+    int thread_failed = 0;//flag per segnalare un thread del pool che e' terminato fallendo
 
     //threadpool non valido
     if(*pool == NULL)
@@ -406,10 +406,9 @@ int threadpool_destroy(threadpool_t **pool)
         errno = EINPROGRESS;
         return -1;
     }
+
     //setto shutdown
     (*pool)->shutdown = 1;
-
-    //nel caso in cui un thread sia fallito ed abbia chiamato la destroy,i passi sono li stessi
 
     //la lock non puo' fallire,se sono arrivato qui possiedo sicuramente il mutex
     pthread_mutex_unlock( (&(*pool)->mtx) );
@@ -430,8 +429,7 @@ int threadpool_destroy(threadpool_t **pool)
     //possibile errore nella lock della coda dei task,posso ritornare subito
     TP_ERROR_HANDLER_1(err,-1);
 
-    /* sveglio tutti eventuali thread bloccati sulla coda dei task,
-       non serve testare errore.@see man pthread_cond_broadcast */
+    /* sveglio tutti eventuali thread bloccati sulla coda dei task */
     err = pthread_cond_broadcast(&((*pool)->task_queue->cond));
 
     //unlock coda dei task
@@ -463,7 +461,7 @@ int threadpool_destroy(threadpool_t **pool)
         return -1;
     }
 
-    //uno o piu' thread del pool sono falliti
+    //controllo se uno o piu' thread del pool sono falliti
     if(err == THREAD_FAILED)
         thread_failed = 1;
 

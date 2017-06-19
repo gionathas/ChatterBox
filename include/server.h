@@ -46,6 +46,8 @@ typedef struct server{
  * @var arg_suh argomenti per la funzione signal_usr_handler
  * @var client_out_of_bound funzione per gestire il caso in cui ci sono troppi client
  * @var arg_cob argomenti per la funzione client_out_of_bound
+ *
+ * @note tutte le funzioni ritornano int per controllare l'esito con cui terminano
  */
 typedef struct{
     int (*client_manager_fun)(void *,int,void*); // 1 buffer,2 fd_client,3 arg
@@ -77,8 +79,9 @@ server_t* init_server(char *sockname,size_t messageSize,int max_connection);
  * @param num_pool_thread numero di thread del pool da far partire
  * @param funs struttura delle funzioni utilizzate dal server
  *
- * @return Ritora 0 quando il server e' terminato con un segnale di terminazione,
- *        altrimenti ritorna -1 e setta errno.
+ * @return 0 on success. Altrimenti in caso di errore puo' ritornare:
+           1 in caso un thread del pool fallisca.Stampa a video l'errore,e non setta errno.
+          -1 per tutti gli altri casi di errore.Setta errno.
  *
  * @note Il server viene terminato con un segnale(SIGTERM,SIGQUIT,SIGINT).
  */
