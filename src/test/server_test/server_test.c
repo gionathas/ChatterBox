@@ -17,8 +17,9 @@ static int gestioneClient(void *buff,int fd,void *arg)
 
     strncpy(string,buff,STRING_LEN);
 
-    //inserisco il terminatore di stringa
+//inserisco il terminatore di stringa
     string[strlen(string)] = '\0';
+
 
     //toupper
     while(string[i] != '\0')
@@ -28,9 +29,8 @@ static int gestioneClient(void *buff,int fd,void *arg)
     }
 
     write(fd,string,STRING_LEN * sizeof(char));
-    
 
-    return 0;
+    return -1;
 }
 
 static int readMessage(int fd,void *message)
@@ -55,7 +55,6 @@ static int gestioneTroppiClient(int fd,void *arg)
     char err_mess[] = "Server pieno";
 
     write(fd,err_mess,STRING_LEN * sizeof(char));
-
     return 0;
 }
 
@@ -74,6 +73,7 @@ int main()
         return -1;
     }
 
+
     //creo funzioni per il server
     server_function_t funs;
     //funzione gestione client e argomenti
@@ -81,20 +81,12 @@ int main()
     funs.arg_cmf = NULL;
 
     funs.read_message_fun = readMessage;
-
     funs.client_out_of_bound = gestioneTroppiClient;
     funs.arg_cob = NULL;
 
     funs.signal_usr_handler = sigusr1;
     funs.arg_suh = NULL;
 
-    int rc = start_server(server,2,funs);
+    return  start_server(server,2,funs);
 
-    if(rc != 0)
-    {
-        perror("on start_server");
-        return -1;
-    }
-
-    return 0;
 }

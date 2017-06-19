@@ -1,17 +1,32 @@
+#define _POSIX_C_SOURCE 200112L
 #include"threadpool.h"
 #include<stdio.h>
 #include<unistd.h>
+#include<signal.h>
+#include<string.h>
+
+static int res;
+threadpool_t *tp;
+
+
+static void signal_hdr(int sig)
+{
+    res = threadpool_destroy(&tp);
+}
 
 static int dummy_fun(void* arg)
 {
-    printf("ciao\n" );
     errno = EINVAL;
-    return 0;
+    return -1;
 }
 
 int main()
 {
-    threadpool_t *tp;
+    struct sigaction sa;
+    memset(&sa,0,sizeof(sa));
+
+    sa.sa_handler = signal_hdr;
+    sigaction(SIGTERM,&sa,NULL);
 
     tp = threadpool_create(2);
 
@@ -23,19 +38,13 @@ int main()
 
     int rc = threadpool_add_task(tp,dummy_fun,NULL);
 
+    sleep(2);
+
     if(rc == -1)
     {
         perror("on add task");
         return -1;
     }
 
-    rc = threadpool_destroy(&tp);
-
-    if(rc == -1)
-    {
-        perror("on destroy");
-        return -1;
-    }
-
-    return 0 ;
+    return res;
 }

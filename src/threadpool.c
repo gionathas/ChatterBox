@@ -9,8 +9,12 @@
 #include"macro_error.h"
 #include"queue.h"
 
+#define DEBUG
+
 /*Definisco lo scheduling FIFO per la coda dei task */
 static const q_mode_t task_scheduler = FIFO;
+
+static int thread_failed = 0;//flag per segnalare quando un thread e' fallito
 
 /* Funzioni di utilita' */
 
@@ -258,20 +262,19 @@ static int join_threads(threadpool_t *tp)
 {
     int err;
     int status;
-    int thread_failed = 0; //settato se un thread e' terminato con exit failure
 
     //prima di fare la join sveglio eventuali thread bloccati sulla coda dei task
     err = pthread_mutex_lock(&tp->task_queue->mtx);
 
     //controllo errore lock coda dei task
-    TP_RETURN_ERR_CODE(err);
+    TP_ERROR_HANDLER_1(err,-1);
 
     err = pthread_cond_broadcast(&tp->task_queue->cond);
 
     pthread_mutex_unlock(&tp->task_queue->mtx);
 
     //controllo errore nel broadcast
-    TP_RETURN_ERR_CODE(err);
+    TP_ERROR_HANDLER_1(err,-1);
 
     //faccio il join
     for (size_t i = 0; i < tp->threads_in_pool; i++)
@@ -279,17 +282,21 @@ static int join_threads(threadpool_t *tp)
         err = pthread_join(tp->threads[i],(void*)&status);
 
         //controllo errore nella join
-        TP_RETURN_ERR_CODE(err);
+        TP_ERROR_HANDLER_1(err,-1);
 
         if(status == EXIT_FAILURE)
             thread_failed = 1;
+
     }
 
     //ritorno 0 se tutti i thread sono terminati correttamente,altrimenti THREAD_FAILED
-    if(!thread_failed)
+    if(thread_failed == 0)
+    {
         return 0;
-    else
+    }
+    else{
         return THREAD_FAILED;
+    }
 }
 
 /* Funzioni Interfaccia */
@@ -399,11 +406,8 @@ int threadpool_destroy(threadpool_t **pool)
         errno = EINPROGRESS;
         return -1;
     }
-    else
-    {
-        //setto shutdown
-        (*pool)->shutdown = 1;
-    }
+    //setto shutdown
+    (*pool)->shutdown = 1;
 
     //nel caso in cui un thread sia fallito ed abbia chiamato la destroy,i passi sono li stessi
 
@@ -454,7 +458,10 @@ int threadpool_destroy(threadpool_t **pool)
     #endif
 
     //controllo errore  nella join
-    TP_ERROR_HANDLER_1(err,-1);
+    if(err == -1)
+    {
+        return -1;
+    }
 
     //uno o piu' thread del pool sono falliti
     if(err == THREAD_FAILED)

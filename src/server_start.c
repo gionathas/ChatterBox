@@ -407,6 +407,7 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
     #endif
 
     int err;
+    int thread_failed = 0;
 
     close_all_client(max_fd,active_set);
     free(wa_args);
@@ -428,11 +429,11 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
     {
         return -1;
     }
-    else if(err == THREAD_FAILED)//caso in cui un thread del pool e' fallito
-    {
-        return THREAD_FAILED;
-    }
     else{//continuo chiusura
+
+        //controllo se un thread sia fallito
+        if(err == THREAD_FAILED)
+            thread_failed = 1;//setto thread failed
 
         //rimuovo indirizzo fisico
         err = unlink(server->sa.sun_path);
@@ -445,10 +446,10 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
 
         close(server->fd);
         free(server);
-    }
 
-    //tutto ok,ritorno 0;
-    return 0;
+        //tutto ok,ritorno 0;
+        return thread_failed;
+    }
 }
 
 /**
@@ -511,10 +512,8 @@ static int init_worker(void *arg)
             elem.op = SET;
         }
     }
-
     //aggiungo alla coda dei descrittori da aggiornare
     err = pthread_mutex_lock(&descriptors.mtx);
-
     //errore nella lock
     if(err)
     {
@@ -811,9 +810,9 @@ static void* listener(void *arg)
         //errore nella server_close
         pthread_exit((void*)EXIT_FAILURE);
     }
-    else if(err == THREAD_FAILED)
+    //un thread del pool e' fallito
+    else if(err == 1)
     {
-        //un thread del pool e' fallito
         pthread_exit((void*)THREAD_FAILED);
     }
     else{
@@ -837,7 +836,6 @@ static void* listener(void *arg)
      goto lst_error;
 
  lst_error:
-     //pthread_kill(server->signal_thread,SIGUSR2);
 
      threadpool_destroy(&server->threadpool);
      //rimuovo indirizzo fisico
@@ -902,12 +900,14 @@ int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
 
     read_message_fun = funs.read_message_fun;
 
+
     //avvio listener
     err = pthread_create(&server->listener_thread,NULL,listener,NULL);
 
     //errore create
     if(err)
     {
+
         errno = err;
         curr_error = errno;
         goto st_error2;
@@ -917,7 +917,7 @@ int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
 
     err = pthread_join(server->listener_thread,(void*)&status);
 
-    //errore join
+    //errorejoin
     if(err)
     {
         errno = err;
@@ -927,6 +927,8 @@ int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
 
     if(status == EXIT_FAILURE)
         return -1;
+    else if(status == THREAD_FAILED)
+        return 1;
     else
         return 0;
 
