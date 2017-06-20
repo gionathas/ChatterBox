@@ -5,111 +5,243 @@
 #include"utenti.h"
 #include"config.h"
 
-utente_t *cercaUtente(char *key,utenti_registrati_t Utenti)
+utente_t *cercaUtente(char *name,utenti_registrati_t Utenti)
 {
-    //otteniamo l'hash per la ricerca
-    int hashIndex = hash(key);
+    if(name == NULL)
+    {
+        errno = EINVAL;
+        return NULL;
+    }
 
-    //cerchiamo nell'array fino a quando non troviamo uno spazio vuoto
+    //ottengo posizione tramite hash
+    int hashIndex = hash(name);
+    int count = 0; //contatore di supporto
+
+    //fin quando non incontro una poszione libera
     while(Utenti.elenco[hashIndex] != NULL)
     {
-        //se troviamo la chiave corrispondente allora abbiamo trovato l'utente
-        if(strcmp(Utenti.elenco[hashIndex]->key,key) == 0)
+        //se i nick sono uguali,abbiamo trovato l'utente
+        if(strcmp(Utenti.elenco[hashIndex]->nickname,name) == 0)
         {
             return Utenti.elenco[hashIndex];
         }
 
-        //altrimenti andiamo avanti con le posizioni
+        //altrimenti proseguo nella ricerca,aggiornando l'indice
         ++hashIndex;
-
-        //facciamo il modulo per non traboccare fuori
+        //per non traboccare
         hashIndex %= MAX_USERS;
+        count++;
+
+        //caso in cui ho controllato tutti gli utenti e non ho trovato quello che mi interessava
+        if(count == MAX_USERS)
+        {
+            break;
+        }
     }
 
     //utente non trovato
     return NULL;
 }
 
-int inserisciUtente(char *name,utenti_registrati_t Utenti)
+//-1 errore,0 ok, 1 utente gia' presente
+int registraUtente(char *name,int fd,utenti_registrati_t Utenti)
 {
-    //creo utente
+    int rc;
+
+    errno = 0;
+
+    //controllo parametri
+    if(name == NULL || fd <= 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    //controllo che non abbiamo raggiunto il massimo degli utenti registrabili
+    if(*Utenti.utenti_registrati == MAX_USERS)
+    {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    //Controllo se il nick non sia gia' presente
+    utente_t *already_reg = cercaUtente(name,Utenti);
+
+    //utente gia; presente
+    if(already_reg != NULL)
+    {
+        return 1;
+    }
+    else if(already_reg == NULL && errno != 0)
+    {
+        //c'e' stato un errore nella ricerca
+        return -1;
+    }
+
+    //se arrivo qui posso registrare il nuovo utente
+
+    //creo istanza utente
     utente_t *utente = malloc(sizeof(utente_t));
 
+    //allocazione andata male
     if(utente == NULL)
         return -1;
 
-    utente->key = name;
-    strncpy(utente->info.nickname ,name,MAX_NAME_LENGTH);
-    utente->info.isOnline = 1;
+    strncpy(utente->nickname ,name,MAX_NAME_LENGTH);
+    utente->isOnline = 1;
+    utente->fd = fd;
+    rc = pthread_mutex_init(&utente->mtx,NULL);
 
+    //errore mutex init
+    if(rc)
+    {
+        errno = rc;
+        return -1;
+    }
+
+    //ora lo memorizzo nell'elenco
 
     //hash per la ricerca
-    int hashIndex = hash(utente->key);
-    int count = 0; //contatore per vedere se la elenco utenti e' piena
+    int hashIndex = hash(name);
 
-    //finche trovo posizioni non libere e o che sono state cancellate,vado avanti
-    while( (Utenti.elenco[hashIndex] != NULL) && (strcmp(Utenti.elenco[hashIndex]->key,"") != 0) )
+    //finche trovo posizioni occupate,avanzo con l'indice
+    while(Utenti.elenco[hashIndex] != NULL)
     {
+        //aggiorno indice
         ++hashIndex;
         hashIndex %= MAX_USERS;
-        count++;
-
-        if(count > MAX_USERS)
-        {
-            errno = ENOMEM;
-            return -1;
-        }
     }
 
     //posizione trovata, inserisco
     Utenti.elenco[hashIndex] = utente;
 
+    //incremento numero utenti registrati
+    ++(*(Utenti.utenti_registrati));
+
     return 0;
 }
 
-int rimuoviUtente(char *key,utenti_registrati_t Utenti)
+//-1 errore,0 rimosso,1 non trovato
+int deregistraUtente(char *name,utenti_registrati_t Utenti)
 {
-    //ottengo posizione tramite hash
-    int hashIndex = hash(key);
-
-    //cerco elemento
-    while(Utenti.elenco[hashIndex] != NULL)
+    if(name == NULL)
     {
-        //utenet trovato?
-        if(strcmp(Utenti.elenco[hashIndex]->key,key) == 0)
-        {
-            //per eliminare setto la chiave con un stringa vuota
-            Utenti.elenco[hashIndex]->key = "";
-            return 0;
-        }
-
-        //altrimenti proseguo nella ricerca
-        ++hashIndex;
-        hashIndex %= MAX_USERS;
+        errno = EINVAL;
+        return -1;
     }
 
+    errno = 0;
+
+    utente_t *utente = cercaUtente(name,Utenti);
+
+    //errore ricerca utente
+    if(utente == NULL && errno != 0)
+    {
+        return -1;
+    }
+    else if(utente == NULL)
+    {
+        //utente non trovato
+        return 1;
+    }
+
+    //altrimenti rimuovo l'utente
+    pthread_mutex_destroy(&utente->mtx);
+    free(utente);
+    --(*(Utenti.utenti_registrati));
+
     //utente non trovato
-    return -1;
+    return 0;
 }
 
-void mostraUtenti(utenti_registrati_t Utenti)
+int connectUtente(char *name,int fd,utenti_registrati_t Utenti)
+{
+    //controllo parametri
+    if(name == NULL)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    utente_t *utente;
+
+    errno = 0;
+
+    utente = cercaUtente(name,Utenti);
+
+    //utente non presente
+    if(utente == NULL && errno == 0)
+        return 1;
+    //c'e' stato un errore nella ricerca
+    else if(utente == NULL && errno != 0)
+        return -1;
+
+    utente->isOnline = 1;
+    utente->fd = fd;
+    ++(*(Utenti.utenti_online));
+
+    return 0;
+}
+
+//0 disconessione avvenuta,1 utente non trovato,-1 errore
+int disconnectUtente(char *name,utenti_registrati_t Utenti)
+{
+    //controllo parametri
+    if(name == NULL)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    utente_t *utente;
+
+    errno = 0;
+
+    utente = cercaUtente(name,Utenti);
+
+    //utente non presente
+    if(utente == NULL && errno == 0)
+        return 1;
+    //c'e' stato un errore nella ricerca
+    else if(utente == NULL && errno != 0)
+        return -1;
+
+    utente->isOnline = 0;
+    utente->fd = -1;
+    --(*(Utenti.utenti_online));
+
+
+    return 0;
+}
+
+void mostraUtenti(FILE *fout,utenti_registrati_t Utenti)
 {
     for (size_t i = 0; i < MAX_USERS; i++)
     {
-        //posizione vuota
+        //posizione non  vuota
         if(Utenti.elenco[i] != NULL)
         {
-            //poszione valida
-            if(strcmp(Utenti.elenco[i]->key,"") != 0 )
-            {
-                printf("%s ",Utenti.elenco[i]->info.nickname);
+            fprintf(fout,"%s ",Utenti.elenco[i]->nickname);
 
-                //online?
-                if(Utenti.elenco[i]->info.isOnline)
-                    printf("online\n");
-                else
-                    printf("offline\n");
-            }
+            //online?
+            if(Utenti.elenco[i]->isOnline)
+                fprintf(fout,"online\n");
+            else
+                fprintf(fout,"offline\n");
+
+        }
+    }
+}
+
+void mostraUtentiOnline(FILE *fout,utenti_registrati_t Utenti)
+{
+    for (size_t i = 0; i < MAX_USERS; i++)
+    {
+        //posizione non  vuota
+        if(Utenti.elenco[i] != NULL)
+        {
+            if(Utenti.elenco[i]->isOnline)
+                fprintf(fout, "%s\n",Utenti.elenco[i]->nickname);
         }
     }
 }
