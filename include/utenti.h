@@ -1,17 +1,18 @@
+#include<pthread.h>
 #include"config.h"
 
 typedef struct{
     char nickname[MAX_NAME_LENGTH];
     unsigned short isOnline; //0 offline,1 online
-}info_utente_t;
-
-typedef struct{
-    char *key;//chiave per hash,corrisponde al nickname
-    info_utente_t info;
+    int fd; //descrittore relativo al client di quell'utente
+    pthread_mutex_t mtx; //mutex per accedere ai dati dell'utente
 }utente_t;
 
 typedef struct{
     utente_t *elenco[MAX_USERS]; //elenco utenti registrati
+    unsigned long *utenti_registrati;
+    unsigned long *utenti_online;
+    pthread_mutex_t *mtx;
 }utenti_registrati_t;
 
 
@@ -27,7 +28,10 @@ static unsigned int hash(char *str)
     return hash % MAX_USERS;
 }
 
-utente_t *cercaUtente(char *key,utenti_registrati_t Utenti);
-int inserisciUtente(char *name,utenti_registrati_t Utenti);
-int rimuoviUtente(char *key,utenti_registrati_t Utenti);
-void mostraUtenti(utenti_registrati_t Utenti);
+utente_t *cercaUtente(char *name,utenti_registrati_t Utenti);
+int registraUtente(char *name,int fd,utenti_registrati_t Utenti);
+int deregistraUtente(char *name,utenti_registrati_t Utenti);
+void mostraUtenti(FILE *fout,utenti_registrati_t Utenti);
+void mostraUtentiOnline(FILE *fout,utenti_registrati_t Utenti);
+int connectUtente(char *name,int fd,utenti_registrati_t Utenti);
+int disconnectUtente(char *name,utenti_registrati_t Utenti);
