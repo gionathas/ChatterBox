@@ -6,7 +6,29 @@
  * originale dell'autore
  */
 
- void chatty_clients_overflow(int fd)
- {
+ #include"message.h"
+ #include"chatty_task.h"
+
+/* FUNZIONI INTERFACCIA */
+
+int chatty_client_manager(int fd)
+{
+    //TODO
+    return 0;
+}
+
+
+int chatty_clients_overflow(int fd)
+{
+     message_hdr_t msg;
+     int rc;
+
      //essendo un caso di fallimento mando solo l'header
+
+     //sender non importante per questo tipo di messaggio.
+     setHeader(&msg,OP_FAIL,"");
+
+     rc = sendHeader(fd,&msg);
+
+     return rc;
  }

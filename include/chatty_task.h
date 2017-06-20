@@ -8,9 +8,11 @@
 #ifndef CHATTY_TASK_H_
 #define CHATTY_TASK_H_
 
-void chatty_parser();
-void chatty_client_manager();
+#include"config.h"
+
+int chatty_parser(char *pathfile,server_config_t *config);
+int chatty_client_manager(int fd);
 //gestione del caso troppi client,e' un caso che gestisce il listener
-void chatty_clients_overflow();
+int chatty_clients_overflow(int fd);
 
 #endif /* CHATTY_TASK_H_ */
