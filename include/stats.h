@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <time.h>
+#include<pthread.h>
 
 struct statistics {
     unsigned long nusers;                       // n. di utenti registrati
@@ -23,14 +24,18 @@ struct statistics {
  *
  * @param fout descrittore del file aperto in append.
  *
- * @return 0 in caso di successo, -1 in caso di fallimento 
+ * @return 0 in caso di successo, -1 in caso di fallimento
  */
-static inline int printStats(FILE *fout) {
+static inline int printStats(FILE *fout)
+{
     extern struct statistics chattyStats;
+    extern pthread_mutex_t mtx_chatty;
+
+    pthread_mutex_lock(&mtx_chatty);
 
     if (fprintf(fout, "%ld - %ld %ld %ld %ld %ld %ld %ld\n",
 		(unsigned long)time(NULL),
-		chattyStats.nusers, 
+		chattyStats.nusers,
 		chattyStats.nonline,
 		chattyStats.ndelivered,
 		chattyStats.nnotdelivered,
@@ -38,7 +43,12 @@ static inline int printStats(FILE *fout) {
 		chattyStats.nfilenotdelivered,
 		chattyStats.nerrors
 		) < 0) return -1;
+
+
     fflush(fout);
+
+    pthread_mutex_unlock(&mtx_chatty);
+
     return 0;
 }
 

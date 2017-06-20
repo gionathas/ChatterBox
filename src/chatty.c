@@ -27,11 +27,23 @@
 #include"chatty_task.h"
 #include"stats.h"
 
-/*
- * Struttura che memorizza le statistiche del server, struct statistics
- * e' definita in stats.h.
- */
-struct statistics  chattyStats = { 0,0,0,0,0,0,0 };
+struct statistics chattyStats = { 0,0,0,0,0,0,0 };
+pthread_mutex_t mtx_chatty = PTHREAD_MUTEX_INITIALIZER;//mutex per proteggere chattyStats
+
+typedef struct{
+    struct statistics *stat = &chattyStats;
+    pthread_mutex_t *mtx = &mtx_chatty;
+}server_stat_t;
+
+typedef struct{
+    utenti_registrati_t UtentiRegistrati;
+    pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+}server_utenti_t;
+
+typedef struct{
+    server_stat_t stat;
+    server_utenti_t utenti;
+}server_thread_argument_t
 
 /* Funzioni di utilita' */
 

@@ -26,6 +26,8 @@
 #define MAX_SIZE_LINE 160
 /* Numero caratteri massimo di un campo all'interno di unra riga del file di config */
 #define MAX_SIZE_FIELD 65
+/* Numero massimo di utenti registrabili  */
+#define MAX_USERS 1000
 
 
 //Salva la configurazione attuale del server
