@@ -3,28 +3,41 @@
 #include<stdio.h>
 #include"utenti.h"
 
+#define MAX_USER 5
+
 int main()
 {
-    utenti_registrati_t utenti;
+    utenti_registrati_t *utenti;
     int rc;
+    unsigned long reg = 0,onl = 0;
+    pthread_mutex_t mtx;
 
-    //init
-    *(utenti.utenti_registrati) = 0;
-    *utenti.utenti_online = 0;
-    rc = pthread_mutex_init(&(*(utenti.mtx)),NULL);
+    pthread_mutex_init(&mtx,NULL);
 
-    if(rc)
+    utenti = inizializzaUtentiRegistrati(MAX_USER,&reg,&onl,&mtx);
+
+    if(utenti == NULL)
     {
-        errno = rc;
-        perror("on init mutex");
+        perror("creazione elenco utenti");
         return -1;
     }
 
-    registraUtente("Gio",utenti);
-    registraUtente("Anna",utenti);
 
-    mostraUtenti(utenti);
+    registraUtente("Gio",3,utenti);
+    registraUtente("Anna",2,utenti);
+    registraUtente("Marco",4,utenti);
+    registraUtente("Nino",6,utenti);
 
-    return 0;
+    disconnectUtente("Nino",utenti);
+    disconnectUtente("Marco",utenti);
+
+    mostraUtenti(stdout,utenti);
+
+    printf("\n");
+    mostraUtentiOnline(stdout,utenti);
+
+    printf("Utenti Registrati = %ld\nUtenti online = %ld\n",reg,onl);
+
+    return eliminaElenco(utenti);
 
 }

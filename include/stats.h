@@ -1,8 +1,8 @@
 #if !defined(SERVER_STATS_)
 #define SERVER_STATS_
 
-#include <stdio.h>
-#include <time.h>
+#include<stdio.h>
+#include<time.h>
 #include<pthread.h>
 
 struct statistics {

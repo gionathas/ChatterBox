@@ -32,10 +32,10 @@
 
 /* Struttura per manternere statistiche sul server */
 struct statistics chattyStats = { 0,0,0,0,0,0,0 };
-pthread_mutex_t mtx_chatty_stat = PTHREAD_MUTEX_INITIALIZER;//mutex per proteggere chattyStats
+pthread_mutex_t mtx_chatty_stat;//mutex per proteggere chattyStats
 
 /* Per mantenere le info sugli utenti di chatty */
-utenti_registrati_t chattyUtenti;
+utenti_registrati_t *chattyUtenti;
 
 /* Struttura argomenti per i thread del pool */
 typedef struct{
@@ -73,12 +73,7 @@ int main(int argc, char *argv[])
     server_t *server; //istanza del server
     server_config_t config; //variabile per salvare la configurazione attuale del server
     server_function_t funs; //funzioni utili per il server
-    //inizializzo argomenti per i thread del pool
-    server_thread_argument_t thread_argument = {
-        stat = &chattyStats,
-        mtx_stat = &mtx_chatty_stat,
-        utenti = &chattyUtenti
-    }
+    server_thread_argument_t thread_argument; //argomenti per i thread del pool
 
     int rc; //gestione ritorno funzioni
 
@@ -86,10 +81,23 @@ int main(int argc, char *argv[])
 
     //TODO Implementare file parser per la configurazione server
 
+    //inizializzo mutex per statistiche
+    rc = pthread_mutex_init(&mtx_chatty_stat,NULL);
+
+    th_error_main(rc,"on init mutex");
+
     //inizializzo struttura utenti di chatty
-    chattyUtenti.utenti_online = &chattyStats.nonline;
-    chattyUtenti.utenti_registrati = &chattyStats.nusers;
-    chattyUtenti.mtx = &mtx_chatty_stat;
+    chattyUtenti = inizializzaUtentiRegistrati(MAX_USERS,&chattyStats.nusers,&chatty.nonline,&mtx_chatty_stat);
+
+    if(chattyUtenti == NULL)
+    {
+        exit(EXIT_FAILURE);
+    }
+
+    //inizializzo threda argument
+    thread_argument.mtx_stat = &mtx_chatty_stat;
+    thread_argument.stat = &chattyStats;
+    thread_argument.utenti &chattyUtenti;
 
     //inizializzo e configuro il server
     server = init_server("tmp/server",sizeof(message_t),2);

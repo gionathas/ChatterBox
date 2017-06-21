@@ -29,7 +29,6 @@
 /* Numero massimo di utenti registrabili  */
 #define MAX_USERS 1000
 
-
 //Salva la configurazione attuale del server
 typedef struct{
     char serverpath[UNIX_PATH_MAX];
@@ -45,7 +44,7 @@ typedef struct{
 // to avoid warnings like "ISO C forbids an empty translation unit"x
 typedef int make_iso_compilers_happy;
 
-void print_config(server_config_t conf)
+static inline void print_config(server_config_t conf)
 {
     printf("ServerPath = %s\n",conf.serverpath);
     printf("MaxConnections = %d\n",conf.max_connection);

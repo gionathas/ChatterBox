@@ -5,6 +5,14 @@
  * Docenti: Prencipe, Torquati
  *
  */
+ /**
+  * @file  connection.h
+  * @brief Contiene le funzioni che implementano il protocollo
+  *        tra i clients ed il server
+  * @author Gionatha Sturba 531274
+  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+  * originale dell'autore
+  */
 #ifndef CONNECTIONS_H_
 #define CONNECTIONS_H_
 
@@ -16,11 +24,7 @@
 
 #include <message.h>
 
-/**
- * @file  connection.h
- * @brief Contiene le funzioni che implementano il protocollo
- *        tra i clients ed il server
- */
+
 
 /**
  * @function openConnection
