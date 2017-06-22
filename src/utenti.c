@@ -156,8 +156,6 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
         return -1;
     }
 
-    errno = 0;
-
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx);
 
@@ -182,7 +180,7 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
     //Controllo se il nick non sia gia' presente
     utente_t *already_reg = cercaUtente(name,Utenti);
 
-    //utente gia; presente
+    //utente gia' presente
     if(already_reg != NULL)
     {
         return 1;
@@ -256,7 +254,6 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
     return 0;
 }
 
-//-1 errore,0 rimosso,1 non trovato
 int deregistraUtente(char *name,utenti_registrati_t *Utenti)
 {
     int rc;
@@ -267,19 +264,15 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
         return -1;
     }
 
-    errno = 0;
-
     utente_t *utente = cercaUtente(name,Utenti);
 
-    //errore ricerca utente
-    if(utente == NULL && errno != 0)
+    if(utente == NULL)
     {
-        return -1;
-    }
-    else if(utente == NULL)
-    {
-        //utente non trovato
-        return 1;
+        //errore ricerca utente
+        if(errno != 0)
+            return -1;
+        else//utente non trovato
+            return 1;
     }
 
     //altrimenti rimuovo l'utente
@@ -325,7 +318,7 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
     int rc;
 
     //controllo parametri
-    if(name == NULL || Utenti == NULL)
+    if(name == NULL || Utenti == NULL || fd <= 0)
     {
         errno = EINVAL;
         return -1;
@@ -333,16 +326,18 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
 
     utente_t *utente;
 
-    errno = 0;
-
     utente = cercaUtente(name,Utenti);
 
-    //utente non presente
-    if(utente == NULL && errno == 0)
-        return 1;
-    //c'e' stato un errore nella ricerca
-    else if(utente == NULL && errno != 0)
-        return -1;
+    if(utente == NULL)
+    {
+        //utente non presente
+        if(errno == 0)
+            return 1;
+        else //errore ricerca utente
+            return -1;
+    }
+
+    //atrimenti ho trovato l'utente
 
     //lock utente
     rc = pthread_mutex_lock(&utente->mtx);
@@ -379,7 +374,6 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
     return 0;
 }
 
-//0 disconessione avvenuta,1 utente non trovato,-1 errore
 int disconnectUtente(char *name,utenti_registrati_t *Utenti)
 {
     int rc;
@@ -393,16 +387,16 @@ int disconnectUtente(char *name,utenti_registrati_t *Utenti)
 
     utente_t *utente;
 
-    errno = 0;
-
     utente = cercaUtente(name,Utenti);
 
-    //utente non presente
-    if(utente == NULL && errno == 0)
-        return 1;
-    //c'e' stato un errore nella ricerca
-    else if(utente == NULL && errno != 0)
-        return -1;
+    if(utente == NULL)
+    {
+        //utente non presente
+        if(errno == 0)
+            return 1;
+        else //errore ricerca utente
+            return -1;
+    }
 
     //lock utente
     rc = pthread_mutex_lock(&utente->mtx);
@@ -476,11 +470,20 @@ void mostraUtenti(utenti_registrati_t *Utenti)
     }
 }
 
+/**
+ * @function add_name
+ * @brief Aggiunge il nome dell'utente all'interno del buffer
+ * @param buffer puntatore al buffer
+ * @param buffer_size puntatore alla size attuale allocata dal buffer
+ * @param new_size puntatore alla nuova size del buffer,dopo aver inserito il nome
+ * @param name nickname da inserire nel buffer
+ * @return puntatore alla prossima posizione libera per inserire nel buffer,altrimenti NULL.
+ */
 static char *add_name(char *buffer,size_t *buffer_size,int *new_size,char *name)
 {
     size_t count = 0;//per contare numero di byte scritti
 
-    //inche non arrivo alla fine del nickname, ed ho spazio nel buffer
+    //finche non arrivo all'ultima lettera del nickname, ed ho spazio nel buffer
     while(*name != '\0' && *buffer_size > 0)
     {
         //inserisco lettera
@@ -511,7 +514,7 @@ static char *add_name(char *buffer,size_t *buffer_size,int *new_size,char *name)
         ++buffer;
     }
 
-    //aggiungo spazi per occupare tutti i byte del nickname
+    //aggiungo spazi dopo il nick,per occupare tutti i byte
     while( ( (MAX_NAME_LENGTH + 1 - (count)) > 0 ) && *buffer_size > 0)
     {
         *buffer = ' ';
@@ -529,7 +532,7 @@ static char *add_name(char *buffer,size_t *buffer_size,int *new_size,char *name)
     //altrimenti aggiorno la nuova size del buffer..
     *new_size += count;
 
-    //ritorno la posizione attuale nel buffer
+    //ritorno la posizione attuale nel buffer,per poter inserire nuovamente
     return (buffer);
 }
 
@@ -565,7 +568,7 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
             //e' online
             if(Utenti->elenco[i].isOnline)
             {
-                //aggiungo il nome di questo utente alla stringa degli utenti online,cioe il buffer
+                //aggiungo il nome di questo utente alla stringa degli utenti online,cioe' il buffer
                 parser = add_name(parser,size_buff,new_size,Utenti->elenco[i].nickname);
 
                 //caso in cui lo spazio nel buffer e' terminato
@@ -589,12 +592,28 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
 
 int eliminaElenco(utenti_registrati_t *Utenti)
 {
+    int rc;
+
     if(Utenti == NULL)
     {
         errno = EINVAL;
         return -1;
     }
 
+    //distrutto tutti i mutex relativi agli utente
+    for (size_t i = 0; i < Utenti->max_utenti; i++)
+    {
+        rc = pthread_mutex_destroy(&Utenti->elenco[i].mtx);
+
+        //esito init
+        if(rc)
+        {
+            errno = rc;
+            return -1;
+        }
+    }
+
+    //libero memoria
     free(Utenti->elenco);
     free(Utenti);
 

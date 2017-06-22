@@ -14,9 +14,9 @@ int main()
     pthread_mutex_t mtx;
 
     //per stringa utenti
-    char buff[20] ="";
+    char buff[1000] ="";
     int buff_size = 0;
-    size_t nbuff = 20;
+    size_t nbuff = 1000;
 
     pthread_mutex_init(&mtx,NULL);
 
