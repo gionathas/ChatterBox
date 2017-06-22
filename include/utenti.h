@@ -19,7 +19,7 @@
  * @var isInit flag per verifcare se l'utente e' inizializzato o meno
  */
 typedef struct{
-    char nickname[MAX_NAME_LENGTH];
+    char nickname[MAX_NAME_LENGTH + 1];
     unsigned short isOnline; //0 offline,1 online
     int fd; //-1 quando non e' online
     pthread_mutex_t mtx;
@@ -87,19 +87,24 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti);
 
 /**
  * @function mostraUtenti
- * @brief mostra tutti gli utenti registrati e il loro stato
- * @param fout dove stampare info
+ * @brief mostra sullo stdout la lista degli utenti registrati e il loro stato
  * @param Utenti elenco utenti
  */
-void mostraUtenti(FILE *fout,utenti_registrati_t *Utenti);
+void mostraUtenti(utenti_registrati_t *Utenti);
 
 /**
  * @function mostraUtentiOnline
- * @brief mostra tutti gli utenti che sono attualmente online
- * @param fout dove stampare info
+ * @brief Scrive sulla stringa puntata da buff,la lista degli utenti online
+ * @param buff buffer dove scrivere la lista di utenti
+ * @param size_buff size del buffer
+ * @param new_size puntatore alla nuova size del buffer,dopo la scrittura
  * @param Utenti elenco utenti
+ * @return 0 in caso di successo,altrimenti -1 e setta errno
+ * @note se lo spazio del buffer non e' sufficiente viene ritornato ENOBUFS
+ * @warning la stringa deve essere gia' allocata e deve essere uguale alla stringa vuota.
+ * @warning new_size deve essere inizializzato a 0
  */
-void mostraUtentiOnline(FILE *fout,utenti_registrati_t *Utenti);
+int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registrati_t *Utenti);
 
 /**
  * @function connectUtente

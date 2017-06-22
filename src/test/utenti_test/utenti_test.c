@@ -1,6 +1,7 @@
 #include<pthread.h>
 #include<errno.h>
 #include<stdio.h>
+#include<string.h>
 #include"utenti.h"
 
 #define MAX_USER 5
@@ -11,6 +12,11 @@ int main()
     int rc;
     unsigned long reg = 0,onl = 0;
     pthread_mutex_t mtx;
+
+    //per stringa utenti
+    char buff[20] ="";
+    int buff_size = 0;
+    size_t nbuff = 20;
 
     pthread_mutex_init(&mtx,NULL);
 
@@ -30,11 +36,24 @@ int main()
 
     disconnectUtente("Nino",utenti);
     disconnectUtente("Marco",utenti);
+    connectUtente("Marco",3,utenti);
 
-    mostraUtenti(stdout,utenti);
+    rc = mostraUtentiOnline(buff,&nbuff,&buff_size,utenti);
 
-    printf("\n");
-    mostraUtentiOnline(stdout,utenti);
+    if(rc == -1)
+    {
+        perror("show users");
+        return -1;
+    }
+
+    /* Per stampare utenti online */
+    int nusers = buff_size / (33);
+
+    printf("buff %d nusers %d\n",(buff_size),nusers );
+
+    for(int i=0,p=0;i<nusers; ++i, p+=(33)) {
+	    printf("%s\n", &buff[p]);
+	}
 
     printf("Utenti Registrati = %ld\nUtenti online = %ld\n",reg,onl);
 
