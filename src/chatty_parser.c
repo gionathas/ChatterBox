@@ -117,7 +117,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
     else if(strcmp(sx_field,"DirName") == 0)
     {
         //memorizzo il path della directory del server
-        strncpy(config->dirname,dx_field,UNIX_PATH_MAX);
+        strncpy(config->dirname,dx_field,MAX_DIRNAME_LEN + 1);
     }
     else if(strcmp(sx_field,"StatFileName") == 0)
     {

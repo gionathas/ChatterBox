@@ -28,24 +28,25 @@
 #include"stats.h"
 #include"utenti.h"
 
+#define STRING_ERROR_SIZE 100
+
 /* Strutture Dati utili */
 
 /* Struttura per manternere statistiche sul server */
 struct statistics chattyStats = { 0,0,0,0,0,0,0 };
 pthread_mutex_t mtx_chatty_stat;//mutex per proteggere chattyStats
 
-/* Per mantenere le info sugli utenti di chatty */
+/* Utenti registrati di chatty */
 utenti_registrati_t *chattyUtenti;
 
-/* Struttura argomenti per i thread del pool */
+//argomenti per i thread del pool del server chatty
 typedef struct{
     struct statistics *stat;
     pthread_mutex_t *mtx_stat;
     utenti_registrati_t *utenti;
-}server_thread_argument_t
+}server_thread_argument_t;
 
 /* Funzioni di utilita' */
-
 static void usage(const char *progname) {
     fprintf(stderr, "Il server va lanciato con il seguente comando:\n");
     fprintf(stderr, "  %s -f conffile\n", progname);
@@ -67,6 +68,12 @@ static int server_client_overflow(int fd,void *arg)
     return chatty_clients_overflow(fd);
 }
 
+static int server_client_manager(void *buff,int fd,void* arg)
+{
+    return chatty_client_manager((message_t*)msg,int fd,(server_thread_argument_t*)arg);
+}
+
+/* CHATTY MAIN */
 
 int main(int argc, char *argv[])
 {
@@ -76,6 +83,8 @@ int main(int argc, char *argv[])
     server_thread_argument_t thread_argument; //argomenti per i thread del pool
 
     int rc; //gestione ritorno funzioni
+    int curr_error; //gestione errno
+    char string_error[STRING_ERROR_SIZE] = NULL; //stringa errore da stampare
 
     //TODO parse argomenti
 
@@ -91,7 +100,9 @@ int main(int argc, char *argv[])
 
     if(chattyUtenti == NULL)
     {
-        exit(EXIT_FAILURE);
+        string_error = "Chatty: fallita inizializzazione utenti";
+        curr_error = errno;
+        goto main_error1;
     }
 
     //inizializzo threda argument
@@ -102,8 +113,12 @@ int main(int argc, char *argv[])
     //inizializzo e configuro il server
     server = init_server("tmp/server",sizeof(message_t),2);
 
-    //controllo esito di init server
-    err_null_ex(server,"MAIN: on init server");
+    if(server == NULL)
+    {
+        string_error = "Chatty: fallita inizializzazione server";
+        curr_error = errno;
+        goto main_error2;
+    }
 
     //inizializzo funzioni per il server
 
@@ -139,4 +154,19 @@ int main(int argc, char *argv[])
     }
 
     exit(EXIT_SUCCESS);
+
+main error2:
+    //elimino elenco utenti
+    eliminaElenco(chattyUtenti);
+    goto main_error1;
+
+//errore handler
+main_error1:
+    //distruggo mutex statistiche
+    pthread_mutex_destroy(&mtx_chatty_stat);
+
+    //stampo errore
+    errno = curr_error;
+    perror(string_error);
+    exit(EXIT_FAILURE);
 }

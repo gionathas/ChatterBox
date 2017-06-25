@@ -18,18 +18,27 @@
 #if !defined(CONFIG_H_)
 #define CONFIG_H_
 
+#include"stats.h"
+
 /* Numero caratteri massimo dei nickname */
 #define MAX_NAME_LENGTH 32
 /* Numero caratteri massimo dei path  */
-#define UNIX_PATH_MAX 65
+#define UNIX_PATH_MAX 80
 /* Numero caratteri massimo di una riga del file di conf */
 #define MAX_SIZE_LINE 160
 /* Numero caratteri massimo di un campo all'interno di unra riga del file di config */
 #define MAX_SIZE_FIELD 65
 /* Numero massimo di utenti registrabili  */
-#define MAX_USERS 1000
+#define MAX_USERS 20
+/* Numero massimo di caratteri per l'identificatore di un file o messaggio */
+#define MAX_ID_LENGTH 2
+/* Numero massimo di caratteri per il path della directory degli utenti */
+#define MAX_SERVER_DIR_LENGTH (UNIX_PATH_MAX - (MAX_NAME_LENGTH  + 1) - MAX_ID_LENGTH)
+/* Numero massimo di caratteri per il path della directory personale di un utente */
+#define MAX_CLIENT_DIR_LENGHT (MAX_SERVER_DIR_LENGTH + (MAX_NAME_LENGTH + 1) )
 
-//Salva la configurazione attuale del server
+
+//Salva la configurazione attuale del server chatty
 typedef struct{
     char serverpath[UNIX_PATH_MAX];
     unsigned int max_connection;
@@ -37,7 +46,7 @@ typedef struct{
     size_t max_msg_size;
     size_t max_file_size;
     unsigned int max_hist_msgs;
-    char dirname[UNIX_PATH_MAX];
+    char dirname[MAX_SERVER_DIR_LENGTH];
     char stat_file_name[UNIX_PATH_MAX];
 }server_config_t;
 
