@@ -14,6 +14,7 @@
 #include"config.h"
 #include"ops.h"
 #include"utenti.h"
+#include"messaggi_utenti.h"
 
 #define CHATTY_THREAD_ERR_HANDLER(err,val,ret)         \
     do{if( (err) == (val)){return (ret);} }while(0)
@@ -24,66 +25,6 @@
 #define BUFFER_INCREMENT 500
 
 /* FUNZIONI INTERFACCIA */
-
-static int send_ok_message(int fd,char *buf,unsigned int len)
-{
-    message_t response;
-    int rc;
-
-    //setto header e data risposta, sender e receiver non ci interessano
-    setHeader(&response.hdr,OP_OK,"");
-    setData(&responde.data,"",buf,len);
-
-    //mando header
-    rc = sendHeader(fd,&response.hdr);
-
-    //errore sendHeader
-    CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-    //mando data
-    rc = sendData(fd,&responde.data);
-
-    //errore sendData
-    CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-    return 0;
-}
-
-static int send_fail_message(int fd,op_t op_fail)
-{
-    message_t err_response; //risposta di errore al client
-    int rc;
-
-    //preparo risposta con op_fail
-    setHeader(&err_response.hdr,op_fail,"");
-
-    //invio risposta,solo header perche' e' un errore
-    rc = sendHeader(fd,&err_response.hdr);
-
-    //errore invio messaggio
-    CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-    //incremento il numero di messaggi di errori inviati dal server
-
-    //lock su stat
-    rc = pthread_mutex_lock(chatty->mtx_stat);
-
-    //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
-
-    //incremento contatore errori
-    ++(chatty->stat.nerrors);
-
-    //unlock stat
-    pthread_mutex_unlock(chatty->mtx_stat);
-
-    return 0;
-}
-
 static int sendUserOnline(int fd,utenti_registrati_t *utenti)
 {
     char *user_online = NULL; //stringa dove salvare i nick degli utenti online
@@ -123,7 +64,8 @@ static int sendUserOnline(int fd,utenti_registrati_t *utenti)
     return send_ok_message(fd,user_online,new_size);
 }
 
-int chatty_client_manager(message_t *message,int fd,server_thread_argument_t *chatty)
+
+int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 {
     int rc;
     char *sender = message->hdr.sender;
@@ -135,104 +77,175 @@ int chatty_client_manager(message_t *message,int fd,server_thread_argument_t *ch
     {
         case REGISTER_OP:
 
-            rc = registraUtente(sender,fd,chatty->utenti);
+            rc = registraUtente(sender,fd,utenti);
 
             //se l'utente risulta GIA' essere registrato con quel nick
             if(rc == 1)
             {
                 rc = send_fail_messagge(fd,OP_NICK_ALREADY);
             }
-
-            //registrazione utente fallita o errore invio risposta
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
+            //registrazione utente fallita..
+            else if(rc == -1)
+            {
+                //..nome non valido o elenco utenti pieno
+                if(errno == EPERM || errno == ENOMEM)
+                {
+                    rc = send_fail_message(fd,OP_FAIL);
+                }
+                //..errore interno registrazione
+                else{
+                    return -1;
+                }
+            }
             //tutto andato bene,mando messaggio di ok al client e lista di utenti connessi
-            rc = sendUserOnline(fd,chatty->utenti);
+            else{
+                rc = sendUserOnline(fd,utenti);
+            }
 
-            //errore operazione
+            //errore operazione precedente
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
             break;
 
         case UNREGISTER_OP:
 
-            rc = deregistraUtente(sender,chatty->utenti);
+            rc = deregistraUtente(sender,utenti);
 
             //se l'utente risulta NON essere registrato con quel nick
             if(rc == 1)
             {
                 rc = send_fail_messagge(fd,OP_NICK_UNKNOWN);
             }
+            //registrazione utente fallita
+            else if(rc == -1)
+            {
+                //..nome non valido
+                if(errno == EPERM)
+                {
+                    rc = send_fail_message(fd,OP_FAIL);
+                }
+                //..errore interno deregistrazione
+                else{
+                    return -1;
+                }
+            }
+            //operazione corretta, mando messaggio di OP_OK
+            else{
+                rc = send_ok_message(fd,"",0);
+            }
 
-            //deregistrazione utente fallita o errore invio risposta
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-            //mando messaggio di OP_OK
-            rc = send_ok_message(fd,"",0);
-
-            //errore operazione
+            //errore operazione precedente
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
             break;
 
         case CONNECT_OP:
 
-            rc = connectUtente(sender,fd,chatty->utenti);
+            rc = connectUtente(sender,fd,utenti);
 
             //utente non trovato
             if(rc == 1)
             {
                 rc = send_fail_messagge(fd,OP_NICK_UNKNOWN);
             }
-
-            //connessione utente fallita o errore invio risposta
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
+            //connessione utente fallita
+            else if(rc == -1)
+            {
+                //..nome non valido o utente gia' connesso
+                if(errno == EPERM)
+                {
+                    rc = send_fail_message(fd,OP_FAIL);
+                }
+                //..errore interno connessione
+                else{
+                    return -1;
+                }
+            }
             //invio OK,e la lista utenti
-            rc = sendUserOnline(fd,chatty->utenti);
+            else{
+                rc = sendUserOnline(fd,utenti);
+            }
 
-            //errore operazione
+            //errore operazione precedente
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
             break;
 
         case DISCONNECT_OP :
 
-            rc = disconnectUtente(sender,chatty->utenti);
+            rc = disconnectUtente(sender,utenti);
 
-            //utente non trovato
+            //utente non registrato
             if(rc == 1)
             {
                 rc = send_fail_messagge(fd,OP_NICK_UNKNOWN);
             }
+            //disconnessione utente fallita
+            else if(rc == -1)
+            {
+                //..nome non valido o utente gia disconesso
+                if(errno == EPERM)
+                {
+                    rc = send_fail_message(fd,OP_FAIL);
+                }
+                //..errore interno disconnessione
+                else{
+                    return -1;
+                }
+            }
+            else{
+                //mando messaggio di OP_OK,qui il data Message non mi interessa
+                rc = send_ok_message(fd,"", 0);
+            }
 
-            //connessione utente fallita o errore invio risposta
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-            //mando messaggio di OP_OK,qui il data Message non mi interessa
-            rc = send_ok_message(fd,"", 0);
-
-            //erore invio messaggio
+            //errore operazione precedente
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
             break;
 
         case USRLIST_OP:
 
-            //invio OK,e la lista utenti
-            rc = sendUserOnline(fd,chatty->utenti);
+            //controllo sender sia registrato ed online
+            utente_t *sender = checkSender(sender,utenti);
 
-            //errore operazione
+            if(sender == NULL)
+            {
+                //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+                if(errno == EPERM || errno == ENETDOWN || errno == 0)
+                {
+                    rc = send_fail_message(fd,OP_FAIL);
+                }
+                //errore checkSender
+                else{
+                    return -1;
+                }
+            }
+            //altrimenti sender valido,invio risposta e rilascio lock dell'utente
+            else{
+                pthread_mutex_unlock(&sender->mtx);
+                rc = sendUserOnline(fd,utenti);
+            }
+
+            //controllo esito messaggio inviato
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
             break;
 
         case POSTTXT_OP:
 
+            rc = inviaMessaggioUtente(sender,receiver,message->data.buf,message->data.hdr.len,utenti);
 
+            //in base all'esito dell'invio del messaggio rispondo al sender
+
+            //in caso di errore
+            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
         default:
-            //TODO
+        
+            rc = send_fail_message(fd,OP_FAIL);
+
+            //controllo esito messaggio inviato
+            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
     }
 
     //client gestito correttamente

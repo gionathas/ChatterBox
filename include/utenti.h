@@ -8,24 +8,27 @@
 #include<pthread.h>
 #include"config.h"
 
+#define USER_ERR_HANDLER(err,val,ret)         \
+    do{if( (err) == (val)){return (ret);} }while(0)
+
 /**
  * @struct utente_t
  * @brief struttura utente di chatty
  * @var nickname nickname utente
- * @var isOnline flag per indicare se l'utente e' online
+ * @var status flag per indicare se lo stato attuale dell'utente
+ * @var isInit flag per controllare se un utente e' stato inizializzato
  * @var fd descrittore associato all'utente
  * @note l'fd vale solo se l'utente e' online
  * @var mtx mutex per sincronizzazioni per accesso dati dell'utente
- * @var isInit flag per verifcare se l'utente e' inizializzato o meno
  * @var personal_dir path della directory personale dell'utente
  * @var n_element_in_dir numero di elementi che si trovano nella mia cartella personale
  */
 typedef struct{
     char nickname[MAX_NAME_LENGTH + 1];
     unsigned short isOnline; //0 offline,1 online
-    int fd; //-1 quando non e' online
+    unsigned short isInit; //0 unitialized, 1 inizializzata
+    unsigned int fd; //0 quando e' offline
     pthread_mutex_t mtx;
-    unsigned short isInit; //0 posizione libera,1 occupata
     char personal_dir[MAX_CLIENT_DIR_LENGHT];
     unsigned int n_element_in_dir;
 }utente_t;
@@ -37,15 +40,19 @@ typedef struct{
  * @var utenti_registrati puntatore alla variabile che contiene il numero di utenti registrati
  * @var utenti_online  puntatore alla variabile che contiene il numero di utenti online
  * @var mtx puntatore al mutex per accedere ai dati riguardante gli utenti
- * @var max_utenti numero massimo di utenti registrabili
+ * @var max_msg_size dimensione massima dei messaggi testuali che possono inviarsi gli utenti
+ * @var max_file_size dimensione massima dei file che possono inviarsi gli utenti
+ * @var max_hist_msgs numero massimo di messaggi e file che il server ricorda per ogni utente
  * @var media_dir directory che contiene file e messaggi per gli utenti
+ * @warning il puntatore a stat,va passato con i valori all'interno inizializzati
  */
 typedef struct{
     utente_t *elenco;
-    unsigned long *utenti_registrati;
-    unsigned long *utenti_online;
-    pthread_mutex_t *mtx;
-    unsigned long max_utenti;
+    struct statistics *stat;
+    pthread_mutex_t *mtx_stat;
+    size_t max_msg_size;
+    size_t max_file_size;
+    unsigned int max_hist_msgs;
     char media_dir[MAX_SERVER_DIR_LENGTH];
 }utenti_registrati_t;
 
@@ -58,36 +65,44 @@ typedef struct{
  * @param mtx puntatore al mutex per accedere ai dati riguardante gli utenti
  * return puntatore alla struttura utenti in caso di successo,altrimenti NULL e setta errno
  */
- utenti_registrati_t *inizializzaUtentiRegistrati(long max_utenti,unsigned long *registrati,unsigned long *online,pthread_mutex_t *mtx,char *dirpath);
+ utenti_registrati_t *inizializzaUtentiRegistrati(int size_msg,int file_size,int hist_size,struct statistics *stat,pthread_mutex_t *mtx_stat,char *dirpath);
 
 /**
  * @function cercaUtente
  * @brief cerca un utente all'interno dei registrati
  * @param name nome utente
  * @param Utenti elenco utenti registrati
- * @return puntatore all'utente in caso sia presente,altrimenti NULL se non e' stato trovato
- * @note se ritorna NULL ed errno e' settatto c'e' stato un errore
-*/
+ * @return puntatore all'utente in caso sia registrato,altrimenti NULL se non e' stato ancora registrato
+ *
+ * @note se ritorna NULL ed errno e' settato c'e' stato un errore.In particolare se errno vale
+ *       EPERM,il nome dell'utente non e' valido.
+ *
+ * @warning se l'utente e' stato trovato viene ritornato con la lock su di esso.
+ */
 utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti);
 
 /**
  * @function registraUtente
- * @brief Registra un utente che non sia gia' presente
+ * @brief Registra un utente che non sia gia' registrato
  * @param name nome utente
  * @param Utenti Elenco utenti registrati
  * @param fd descrittore relativo al client dell'utente
  * @return 0 utente registrato correttamente,1 nel caso l'utente sia gia' registrato,
  *          -1 in caso di errore e setta errno.
- * @note errno puo essere settato su ENOMEM se l'elenco e'pieno e non c'e' piu spazio
+ *
+ * @note errno puo essere settato su ENOMEM se l'elenco utenti e'pieno e non c'e' piu spazio,
+ *             oppure su EPERM se il nome utente non e' valido.
  */
-int registraUtente(char *name,int fd,utenti_registrati_t *Utenti);
+int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti);
 
 /**
  * @function deregistraUtente
- * @brief deregistra un utente presente nell'elenco dei registrati
+ * @brief deregistra un utente registrato nell'elenco dei registrati
  * @param name nome utente
  * @param Utenti lista utenti registrati
- * @return 0 utente rimosso correttamente,-1 errore e setta errno,1 utente non trovato
+ * @return 0 utente rimosso correttamente,-1 errore e setta errno,1 utente non registrato
+ *
+ * @note se errno vale EPERM il nome utente non e' valido
  */
 int deregistraUtente(char *name,utenti_registrati_t *Utenti);
 
@@ -119,9 +134,11 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
  * @param fd descrittore relativo al client dell'utente
  * @param Utenti elenco utenti registrati
  * @return 0 utente connesso correttamente, -1 errore e setta errno,
- *         altrimenti 1 utente non trovato
+ *         altrimenti 1 utente non registrato
+ *
+ * @note errno = EPERM se il nome non e' valido, o se l'utente e' gia connesso
  */
-int connectUtente(char *name,int fd,utenti_registrati_t *Utenti);
+int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti);
 
 /**
  * @function disconnectUtente
@@ -129,7 +146,8 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti);
  * @param name nome utente
  * @param Utenti elenco utenti registrati
  * @return 0 utente disconnesso correttamente, -1 errore e setta errno,
- *         altrimenti 1 utente non trovato
+ *         altrimenti 1 utente non registrato
+ * @note errno = EPERM se il nome non e' valido
  */
 int disconnectUtente(char *name,utenti_registrati_t *Utenti);
 

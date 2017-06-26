@@ -39,13 +39,6 @@ pthread_mutex_t mtx_chatty_stat;//mutex per proteggere chattyStats
 /* Utenti registrati di chatty */
 utenti_registrati_t *chattyUtenti;
 
-//argomenti per i thread del pool del server chatty
-typedef struct{
-    struct statistics *stat;
-    pthread_mutex_t *mtx_stat;
-    utenti_registrati_t *utenti;
-}server_thread_argument_t;
-
 /* Funzioni di utilita' */
 static void usage(const char *progname) {
     fprintf(stderr, "Il server va lanciato con il seguente comando:\n");
@@ -96,7 +89,7 @@ int main(int argc, char *argv[])
     th_error_main(rc,"on init mutex");
 
     //inizializzo struttura utenti di chatty
-    chattyUtenti = inizializzaUtentiRegistrati(MAX_USERS,&chattyStats.nusers,&chatty.nonline,&mtx_chatty_stat);
+    chattyUtenti = inizializzaUtentiRegistrati(&chattyStats,&mtx_chatty_stat,"/tmp/chatty");
 
     if(chattyUtenti == NULL)
     {
@@ -134,7 +127,7 @@ int main(int argc, char *argv[])
     funs.arg_suh = NULL;
     //funzione per gestire comunicazione con il client
     funs.client_manager_fun = //TODO;
-    funs.arg_cmf = (void*)&thread_argument;
+    funs.arg_cmf = (void*)&chattyUtenti;
 
     //faccio partire il server,da ora in poi posso terminarlo solo con un segnale
     rc = start_server(server,2,funs);

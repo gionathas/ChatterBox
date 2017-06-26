@@ -31,6 +31,8 @@ static inline int printStats(FILE *fout)
     extern struct statistics chattyStats;
     extern pthread_mutex_t mtx_chatty;
 
+    //TODO creazione file fout se non esiste
+
     pthread_mutex_lock(&mtx_chatty);
 
     if (fprintf(fout, "%ld - %ld %ld %ld %ld %ld %ld %ld\n",

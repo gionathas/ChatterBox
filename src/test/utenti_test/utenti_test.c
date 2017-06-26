@@ -4,6 +4,7 @@
 #include<string.h>
 #include<unistd.h>
 #include"utenti.h"
+#include"stats.h"
 
 #define MAX_USER 5
 
@@ -11,17 +12,21 @@ int main()
 {
     utenti_registrati_t *utenti;
     int rc;
-    unsigned long reg = 0,onl = 0;
-    pthread_mutex_t mtx;
 
     //per stringa utenti
     char buff[1000] ="";
     int buff_size = 0;
     size_t nbuff = 1000;
 
-    pthread_mutex_init(&mtx,NULL);
 
-    utenti = inizializzaUtentiRegistrati(MAX_USER,&reg,&onl,&mtx,"/tmp/chatty");
+    //per statistics
+    struct statistics Stats = { 0,0,0,0,0,0,0 };
+    pthread_mutex_t mtx_stat;
+
+
+    pthread_mutex_init(&mtx_stat,NULL);
+
+    utenti = inizializzaUtentiRegistrati(100,100,100,&Stats,&mtx_stat,"/tmp/chatty");
 
     if(utenti == NULL)
     {
@@ -30,7 +35,14 @@ int main()
     }
 
 
-    registraUtente("Gio",3,utenti);
+    rc = registraUtente("Gio",3,utenti);
+
+    if(rc == -1)
+    {
+        perror("registraut");
+        return -1;
+    }
+
     sleep(1);
     registraUtente("Anna",2,utenti);
     sleep(1);
@@ -62,11 +74,13 @@ int main()
 
     */
 
-    printf("Utenti Registrati = %ld\nUtenti online = %ld\n",reg,onl);
+    printf("Utenti Registrati = %ld\nUtenti online = %ld\n",Stats.nusers,Stats.nonline);
     mostraUtenti(utenti);
 
     sleep(5);
 
-    return eliminaElenco(utenti);
+    eliminaElenco(utenti);
+
+    return 0;
 
 }

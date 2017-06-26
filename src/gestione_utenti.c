@@ -15,6 +15,7 @@
 #include<sys/stat.h>
 #include<sys/types.h>
 #include<dirent.h>
+#include<math.h>
 #include<string.h>
 #include"utenti.h"
 #include"config.h"
@@ -119,13 +120,20 @@ static int remove_directory(char *path)
    return r;
 }
 
-utenti_registrati_t *inizializzaUtentiRegistrati(long max_utenti,unsigned long *registrati,unsigned long *online,pthread_mutex_t *mtx,char *dirpath)
+//per vedere quante cifre ci sono in un numero
+static inline int numOfDigits(int x)
+{
+    return (floor(log10 (abs (x))) + 1);
+}
+
+utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int hist_size,struct statistics *statistics,pthread_mutex_t *mtx_stat,char *dirpath)
 {
     int rc;
     struct stat st;
 
-    //contrllo parametri
-    if(registrati == NULL || online == NULL || mtx == NULL || max_utenti <= 0 || dirpath == NULL || strlen(dirpath) > MAX_SERVER_DIR_LENGTH)
+    //controllo parametri
+    if(msg_size <= 0 || file_size <= 0 || hist_size <= 0 || statistics == NULL || mtx_stat == NULL ||
+        dirpath == NULL || strlen(dirpath) > MAX_SERVER_DIR_LENGTH || numOfDigits(hist_size) > MAX_ID_LENGTH )
     {
         errno = EINVAL;
         return NULL;
@@ -138,7 +146,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(long max_utenti,unsigned long *
         return NULL;
 
     //alloco spazio per elenco,iniziaizzando valori statici all'interno
-    utenti->elenco = calloc(max_utenti,sizeof(utente_t));
+    utenti->elenco = calloc(MAX_USERS,sizeof(utente_t));
 
     //esito allocazione
     if(utenti->elenco == NULL)
@@ -148,7 +156,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(long max_utenti,unsigned long *
     }
 
     //inizializzo tutti i mutex
-    for (size_t i = 0; i < max_utenti; i++)
+    for (size_t i = 0; i < MAX_USERS; i++)
     {
         rc = pthread_mutex_init(&utenti->elenco[i].mtx,NULL);
 
@@ -169,10 +177,11 @@ utenti_registrati_t *inizializzaUtentiRegistrati(long max_utenti,unsigned long *
         }
     }
 
-    utenti->utenti_online = online;
-    utenti->utenti_registrati = registrati;
-    utenti->mtx = mtx;
-    utenti->max_utenti = max_utenti;
+    utenti->stat = statistics;
+    utenti->mtx_stat = mtx_stat;
+    utenti->max_msg_size = msg_size;
+    utenti->max_file_size = file_size;
+    utenti->max_hist_msgs = hist_size;
     strncpy(utenti->media_dir,dirpath,MAX_SERVER_DIR_LENGTH);
 
     //creo la directory del server,se non e' gia' presente
@@ -188,7 +197,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(long max_utenti,unsigned long *
             int curr_error = errno;
 
             //dealloco tutto
-            for (size_t i = 0; i < max_utenti; i++)
+            for (size_t i = 0; i < MAX_USERS; i++)
             {
                 pthread_mutex_destroy(&utenti->elenco[i].mtx);
             }
@@ -209,14 +218,21 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
 {
     int rc;
 
-    if(name == NULL || Utenti == NULL)
+    //controllo parametri
+    if(name == NULL)
+    {
+        errno = EPERM;
+        return NULL;
+    }
+
+    if(Utenti == NULL)
     {
         errno = EINVAL;
         return NULL;
     }
 
     //ottengo posizione tramite hash
-    int hashIndex = hash(name,Utenti->max_utenti);
+    int hashIndex = hash(name,MAX_USERS);
     int count = 0; //contatore di supporto
 
     //prendo lock sull'utente che analizzo
@@ -229,13 +245,12 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
         return NULL;
     }
 
-    //Non appena incontro una posizione vuota termino,perche' non ho trovato l'utente
+    //fin quando trovo utenti inizializzati
     while(Utenti->elenco[hashIndex].isInit)
     {
         //se i nick sono uguali,abbiamo trovato l'utente
         if(strcmp(Utenti->elenco[hashIndex].nickname,name) == 0)
         {
-            pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
             return &Utenti->elenco[hashIndex];
         }
 
@@ -245,11 +260,11 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
         //altrimenti proseguo nella ricerca,aggiornando l'indice
         ++hashIndex;
         //per non traboccare
-        hashIndex %= Utenti->max_utenti;
+        hashIndex %= MAX_USERS;
         count++;
 
         //caso in cui ho controllato tutti gli utenti e non ho trovato quello che mi interessava
-        if(count == Utenti->max_utenti)
+        if(count == MAX_USERS)
         {
             break;
         }
@@ -268,23 +283,29 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
     //rilascio lock sull'utente su cui mi trovo
     pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
 
-    //utente non trovato
+    //utente non registrato
     return NULL;
 }
 
-int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
+int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
 {
     int rc;
 
     //controllo parametri
-    if(name == NULL || fd <= 0 || Utenti == NULL || strlen(name) > MAX_NAME_LENGTH)
+    if(name == NULL || strlen(name) > MAX_NAME_LENGTH)
+    {
+        errno = EPERM;
+        return -1;
+    }
+
+    if(Utenti == NULL)
     {
         errno = EINVAL;
         return -1;
     }
 
     //lock statistiche utenti
-    rc = pthread_mutex_lock(Utenti->mtx);
+    rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
     if(rc)
@@ -294,22 +315,24 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
     }
 
     //controllo che non abbiamo raggiunto il massimo degli utenti registrabili
-    if(*Utenti->utenti_registrati == Utenti->max_utenti)
+    if(Utenti->stat->nusers == MAX_USERS)
     {
-        pthread_mutex_unlock(Utenti->mtx);
+        pthread_mutex_unlock(Utenti->mtx_stat);
         errno = ENOMEM;
         return -1;
     }
 
     //rilascio lock statistiche
-    pthread_mutex_unlock(Utenti->mtx);
+    pthread_mutex_unlock(Utenti->mtx_stat);
 
-    //Controllo se il nick non sia gia' presente
+    //Controllo se il nick non sia gia' registrato
     utente_t *already_reg = cercaUtente(name,Utenti);
 
-    //utente gia' presente
+    //utente gia' registrato
     if(already_reg != NULL)
     {
+        //rilascio lock utente trovato
+        pthread_mutex_unlock(&already_reg->mtx);
         return 1;
     }
     else if(already_reg == NULL && errno != 0)
@@ -318,13 +341,14 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
         return -1;
     }
 
-    //hash per la ricerca
-    int hashIndex = hash(name,Utenti->max_utenti);
+    //altrimenti nick non presente
 
-    //prendo lock sull'utente che analizzo
+    //hash per la ricerca
+    int hashIndex = hash(name,MAX_USERS);
+
+    //prendo lock utente che vado a controlare
     rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
 
-    //errore lock
     if(rc)
     {
         errno = rc;
@@ -339,7 +363,7 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
 
         //aggiorno indice
         ++hashIndex;
-        hashIndex %= Utenti->max_utenti;
+        hashIndex %= MAX_USERS;
 
         //prendo lock prossimo utente
         rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
@@ -354,8 +378,8 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
 
     //posizione trovata, inserisco info relativo all'utente
     strncpy(Utenti->elenco[hashIndex].nickname,name,MAX_NAME_LENGTH);
-    Utenti->elenco[hashIndex].isOnline = 1;
     Utenti->elenco[hashIndex].isInit = 1;
+    Utenti->elenco[hashIndex].isOnline = 1;
     Utenti->elenco[hashIndex].fd = fd;
     Utenti->elenco[hashIndex].n_element_in_dir = 0;
 
@@ -367,6 +391,13 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
     //..e la cartella
     rc = mkdir(Utenti->elenco[hashIndex].personal_dir,0777);
 
+    if(rc == -1)
+    {
+        //rilascio lock utente inserito
+        pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
+        return -1;
+    }
+
     //rilascio lock utente inserito
     pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
 
@@ -375,7 +406,7 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
         return -1;
 
     //lock statistiche utenti
-    rc = pthread_mutex_lock(Utenti->mtx);
+    rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
     if(rc)
@@ -384,12 +415,12 @@ int registraUtente(char *name,int fd,utenti_registrati_t *Utenti)
         return -1;
     }
 
-    //incremento numero utenti registrati e utenit online
-    ++(*(Utenti->utenti_registrati));
-    ++(*(Utenti->utenti_online));
+    //incremento numero utenti registrati e utenti online
+    ++(Utenti->stat->nusers);
+    ++(Utenti->stat->nonline);
 
     //rilascio lock statistiche
-    pthread_mutex_unlock(Utenti->mtx);
+    pthread_mutex_unlock(Utenti->mtx_stat);
 
     return 0;
 }
@@ -398,12 +429,6 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
 {
     int rc;
 
-    if(name == NULL || Utenti == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-
     utente_t *utente = cercaUtente(name,Utenti);
 
     if(utente == NULL)
@@ -411,20 +436,8 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
         //errore ricerca utente
         if(errno != 0)
             return -1;
-        else//utente non trovato
+        else//utente non registrato
             return 1;
-    }
-
-    //altrimenti rimuovo l'utente
-
-    //lock utente
-    rc = pthread_mutex_lock(&utente->mtx);
-
-    //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
     }
 
     //elimino la cartella personale dell'utente
@@ -443,7 +456,7 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
     }
 
     //lock statistiche utenti
-    rc = pthread_mutex_lock(Utenti->mtx);
+    rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
     if(rc)
@@ -453,25 +466,18 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
     }
 
     //decremento utenti registrati e utenti online
-    --(*(Utenti->utenti_registrati));
-    --(*(Utenti->utenti_online));
+    --(Utenti->stat->nusers);
+    --(Utenti->stat->nonline);
 
     //rilascio lock statistiche
-    pthread_mutex_unlock(Utenti->mtx);
+    pthread_mutex_unlock(Utenti->mtx_stat);
 
     return 0;
 }
 
-int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
+int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
 {
     int rc;
-
-    //controllo parametri
-    if(name == NULL || Utenti == NULL || fd <= 0)
-    {
-        errno = EINVAL;
-        return -1;
-    }
 
     utente_t *utente;
 
@@ -479,22 +485,18 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
 
     if(utente == NULL)
     {
-        //utente non presente
+        //utente non registrato
         if(errno == 0)
             return 1;
         else //errore ricerca utente
             return -1;
     }
 
-    //atrimenti ho trovato l'utente
-
-    //lock utente
-    rc = pthread_mutex_lock(&utente->mtx);
-
-    //errore lock
-    if(rc)
+    //se l'utente e' gia online
+    if(utente->isOnline == 1)
     {
-        errno = rc;
+        pthread_mutex_unlock(&utente->mtx);
+        errno = EPERM;
         return -1;
     }
 
@@ -505,7 +507,7 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
     pthread_mutex_unlock(&utente->mtx);
 
     //lock statistiche utenti
-    rc = pthread_mutex_lock(Utenti->mtx);
+    rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
     if(rc)
@@ -515,10 +517,10 @@ int connectUtente(char *name,int fd,utenti_registrati_t *Utenti)
     }
 
     //incremento numero utenti online
-    ++(*(Utenti->utenti_online));
+    ++(Utenti->stat->nonline);
 
     //rilascio lock statistiche
-    pthread_mutex_unlock(Utenti->mtx);
+    pthread_mutex_unlock(Utenti->mtx_stat);
 
     return 0;
 }
@@ -527,44 +529,35 @@ int disconnectUtente(char *name,utenti_registrati_t *Utenti)
 {
     int rc;
 
-    //controllo parametri
-    if(name == NULL || Utenti == NULL)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-
     utente_t *utente;
 
     utente = cercaUtente(name,Utenti);
 
     if(utente == NULL)
     {
-        //utente non presente
+        //utente non registrato
         if(errno == 0)
             return 1;
         else //errore ricerca utente
             return -1;
     }
 
-    //lock utente
-    rc = pthread_mutex_lock(&utente->mtx);
-
-    //errore lock
-    if(rc)
+    //se l'utente non risulta essere online
+    if(utente->isOnline == 0)
     {
-        errno = rc;
+        pthread_mutex_unlock(&utente->mtx);
+        errno = EPERM;
         return -1;
     }
 
+    //disconnetto..
     utente->isOnline = 0;
-    utente->fd = -1;
 
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
 
     //lock statistiche utenti
-    rc = pthread_mutex_lock(Utenti->mtx);
+    rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
     if(rc)
@@ -573,10 +566,10 @@ int disconnectUtente(char *name,utenti_registrati_t *Utenti)
         return -1;
     }
 
-    --(*(Utenti->utenti_online));
+    --(Utenti->stat->nonline);
 
     //rilascio lock statistiche
-    pthread_mutex_unlock(Utenti->mtx);
+    pthread_mutex_unlock(Utenti->mtx_stat);
 
     return 0;
 }
@@ -590,7 +583,7 @@ void mostraUtenti(utenti_registrati_t *Utenti)
         return;
     }
 
-    for (size_t i = 0; i < Utenti->max_utenti; i++)
+    for (size_t i = 0; i < MAX_USERS; i++)
     {
         //lock su utente
         rc = pthread_mutex_lock(&Utenti->elenco[i].mtx);
@@ -699,7 +692,7 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
     parser = buff;
 
     //scorro gli utenti registrati
-    for (int i = 0; i < Utenti->max_utenti; i++)
+    for (int i = 0; i < MAX_USERS; i++)
     {
         //lock su utente attuale
         rc = pthread_mutex_lock(&Utenti->elenco[i].mtx);
@@ -751,7 +744,7 @@ int eliminaElenco(utenti_registrati_t *Utenti)
     }
 
     //distrutto tutti i mutex relativi agli utente
-    for (size_t i = 0; i < Utenti->max_utenti; i++)
+    for (size_t i = 0; i < MAX_USERS; i++)
     {
         rc = pthread_mutex_destroy(&Utenti->elenco[i].mtx);
 
