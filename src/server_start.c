@@ -23,6 +23,13 @@
 
 #define DEBUG
 
+/*
+ *    Variabile per propagare l'errore con cui fallisce un thread del pool del server
+ *    @note non ha niente a che fare con la variabile del thread_error del threadpool,
+ *    anche se hanno lo stesso ruolo
+ */
+static int thread_error = 0;
+
 /**
  * @enum op_queue_descriptor_t
  * @brief operazione da fare sul descrittore
@@ -400,9 +407,8 @@ static int update_active_set(fd_set *active_set,int *actual_client,int *max_fd)
  * @param active_set insieme dei descrittori controllati
  * @param wa_args insieme degli argomenti per i thread del pool
  *
- * @return 0 tutto andato a buon fine,oppure -1 e setta errno qualcosa andato male,
- *         oppure 1 per indicare che un thread del pool e' fallito ma la chiusura del
- *         server e' avvenuta correttamente.
+ * @return 0 in caso di successo, -1 in caso di errore e setta errno,altrimenti
+ *          contiene il codice dell'errore con cui e' fallito un thread del pool del server
  */
 static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
 {
@@ -411,7 +417,6 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
     #endif
 
     int err;
-    int thread_failed = 0;
 
     close_all_client(max_fd,active_set);
     free(wa_args);
@@ -428,16 +433,18 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
 
     err = threadpool_destroy(&server->threadpool);
 
-    //errore desotroy
+    //errore destroy
     if(err == -1)
     {
         return -1;
     }
     else{//continuo chiusura
 
+        int curr_error = 0;
+
         //controllo se un thread sia fallito
-        if(err == THREAD_FAILED)
-            thread_failed = 1;//setto thread failed
+        if(err > 0)
+            curr_error = err;
 
         //rimuovo indirizzo fisico
         err = unlink(server->sa.sun_path);
@@ -451,8 +458,8 @@ static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
         close(server->fd);
         free(server);
 
-        //ritorno stato di thread failed.
-        return thread_failed;
+        //curr_error puo contenere il codice dell'errore con cui e' fallito il thread
+        return curr_error;
     }
 }
 
@@ -572,8 +579,11 @@ work_error:
   * @brief Funzione che deve eseguire il listener_thread
   * @param arg argomenti per il listener
   *
-  * @return EXIT_SUCCESS tutto andato bene,oppure THREAD_FAILED indica che un thread e' fallito,
-  *         oppure EXIT_FAILURE qualcosa e' andato male.
+  * @return EXIT_SUCCESS in caso di successo,altrimenti EXIT_FAILURE
+  *         in questo caso se e' fallito un thread del pool del server
+  *         setta thread_error per propagare il codice dell'errore
+  *         del thread che e' fallito
+  *
   */
 static void* listener(void *arg)
 {
@@ -810,16 +820,17 @@ static void* listener(void *arg)
     //termino normalmente
     err = server_close(max_fd,&active_set,wa_args);
 
-    //controllo esito terminazione
-    if(err == -1)
+    //controllo esito terminazione server
+    if(err == -1 || err > 0)
     {
-        //errore nella server_close
+        //caso in cui e' fallito un thread
+        if(err > 0)
+        {
+            //setto thread error per poter propagare il codice di ritorno dell'errore
+            thread_error = err;
+        }
+
         pthread_exit((void*)EXIT_FAILURE);
-    }
-    //un thread del pool e' fallito
-    else if(err == 1)
-    {
-        pthread_exit((void*)THREAD_FAILED);
     }
     //tutto andato bene
     else{
@@ -930,10 +941,17 @@ int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
         goto st_error2;
     }
 
+    //server fallito
     if(status == EXIT_FAILURE)
-        return -1;
-    else if(status == THREAD_FAILED)
-        return 1;
+    {
+        //se e' fallito un thread,ritorno il codice dell'errore con cui e' fallito
+        if(thread_error > 0)
+            return thread_error;
+        //errore interno del server ritorno solo -1,errno gia settato
+        else
+            return -1;
+    }
+    //tutto ok
     else
         return 0;
 

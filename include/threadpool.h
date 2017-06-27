@@ -101,8 +101,7 @@ threadpool_t *threadpool_create(int thread_in_pool);
  * @note @param pool,viene passato questo puntatore per una corretta deallocazione
  *
  * @return On success ritorna 0. Oppure  -1 se c'e' un errore nella destroy e setta errno.
- * @note Caso particolare: RItorna THREAD_FAILED se un thread del pool fallisce,ma la deallocazione
- *       e' avvenuta corretamente.
+           Altrimenti ritorna codice dell'errore con cui e' fallito un thread del pool.
  */
 int threadpool_destroy(threadpool_t **pool);
 

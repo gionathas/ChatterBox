@@ -4,6 +4,7 @@
 #include<stdio.h>
 #include<time.h>
 #include<pthread.h>
+#include<errno.h>
 
 struct statistics {
     unsigned long nusers;                       // n. di utenti registrati
@@ -26,16 +27,28 @@ struct statistics {
  *
  * @return 0 in caso di successo, -1 in caso di fallimento
  */
-static inline int printStats(FILE *fout)
+static inline int printStats(char* fout_path)
 {
     extern struct statistics chattyStats;
-    extern pthread_mutex_t mtx_chatty;
+    extern pthread_mutex_t mtx_chatty_stat;
+    int rc;
 
-    //TODO creazione file fout se non esiste
+    FILE *file = fopen(fout_path,"w");
 
-    pthread_mutex_lock(&mtx_chatty);
+    //errore creazione file stati
+    if(file == NULL)
+        return -1;
 
-    if (fprintf(fout, "%ld - %ld %ld %ld %ld %ld %ld %ld\n",
+    rc = pthread_mutex_lock(&mtx_chatty_stat);
+
+    //errore lock su statistiche
+    if(rc)
+    {
+        errno = rc;
+        return -1;
+    }
+
+    if (fprintf(file, "%ld - %ld %ld %ld %ld %ld %ld %ld\n",
 		(unsigned long)time(NULL),
 		chattyStats.nusers,
 		chattyStats.nonline,
@@ -47,9 +60,9 @@ static inline int printStats(FILE *fout)
 		) < 0) return -1;
 
 
-    fflush(fout);
+    fflush(file);
 
-    pthread_mutex_unlock(&mtx_chatty);
+    pthread_mutex_unlock(&mtx_chatty_stat);
 
     return 0;
 }

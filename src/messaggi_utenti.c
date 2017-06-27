@@ -167,6 +167,21 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
         //errore invio data
         USER_ERR_HANDLER(rc,-1,-1);
 
+        //nessun errore riscontrato,incremento numero di messaggi inviati
+        rc = pthread_mutex_lock(utenti->mtx_stat);
+
+        //errore lock
+        if(rc)
+        {
+            errno = rc;
+            return -1;
+        }
+
+        ++(utenti->stat->ndelivered);
+
+        //rilascio lock
+        pthread_mutex_unlock(utenti->mtx_stat);
+
     }
     //se non e' online,dobbiamo salvarlo nella directory personale del receiver,sottoforma di file
     else
@@ -187,6 +202,21 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
         write_on_file(file_msg,text_message);
 
         fclose(file_msg);
+
+        //nessun errore riscontrato,incremento numero di messaggi non ancora consegnati
+        rc = pthread_mutex_lock(utenti->mtx_stat);
+
+        //errore lock
+        if(rc)
+        {
+            errno = rc;
+            return -1;
+        }
+
+        ++(utenti->stat->nnotdelivered);
+
+        //rilascio lock
+        pthread_mutex_unlock(utenti->mtx_stat);
     }
 
     return 0;

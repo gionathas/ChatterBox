@@ -80,8 +80,8 @@ server_t* init_server(char *sockname,size_t messageSize,int max_connection);
  * @param funs struttura delle funzioni utilizzate dal server
  *
  * @return 0 on success. Altrimenti in caso di errore puo' ritornare:
-           1 in caso un thread del pool fallisca.Stampa a video l'errore,e non setta errno.
-          -1 per tutti gli altri casi di errore.Setta errno.
+           codice errore: in caso un thread del pool fallisca.
+          -1: per tutti gli altri casi di errore.Setta errno.
  *
  * @note Il server viene terminato con un segnale(SIGTERM,SIGQUIT,SIGINT).
  */

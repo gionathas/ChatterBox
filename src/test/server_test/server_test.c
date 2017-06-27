@@ -30,6 +30,7 @@ static int gestioneClient(void *buff,int fd,void *arg)
     }
 
     write(fd,string,STRING_LEN * sizeof(char));
+    errno = EINVAL;
 
     return -1;
 }
@@ -61,6 +62,7 @@ static int gestioneTroppiClient(int fd,void *arg)
 
 static int sigusr1(void *arg)
 {
+    errno = EINPROGRESS;
     return -1;
 }
 
@@ -92,15 +94,17 @@ int main()
     int rc = start_server(server,2,funs);
 
     //gestisco tutti i casi di errore
-    if(rc == -1 || rc == 1)
+    if(rc == -1 || rc > 0)
     {
         //gestione errore non riguardante il fallimento dei thread
         if(rc == -1)
         {
-            perror("server fail:");
+            perror("server fail");
         }
-
-        exit(EXIT_FAILURE);
+        else{
+            errno = rc;
+            perror("thread failed");
+        }
     }
 
     //tutto andato a buon fine
