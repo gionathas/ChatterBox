@@ -30,9 +30,8 @@ static int sendUserOnline(int fd,utenti_registrati_t *utenti)
     char *user_online = NULL; //stringa dove salvare i nick degli utenti online
     size_t size = INITAL_BUFFER;
     int  count = -(BUFFER_INCREMENT); //byte in aggiunta alla stringa degli utenti online,si incrementa ogni volta di 100 byte
-    unsigned int new_size; //nuova size della stringa dopo aver scritto i nick al suo interno
+    int new_size; //nuova size della stringa dopo aver scritto i nick al suo interno
     int rc;
-    message_t response; //risposta per il client
 
     do {
         new_size = 0;
@@ -55,7 +54,7 @@ static int sendUserOnline(int fd,utenti_registrati_t *utenti)
 
         rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
 
-    } while(rc == -1 && errno == ENOBUFS)//fin quando non trovo una size adatta per la stringa
+    } while(rc == -1 && errno == ENOBUFS);//fin quando non trovo una size adatta per la stringa
 
     //se sono fallito per altro
     CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
@@ -68,21 +67,22 @@ static int sendUserOnline(int fd,utenti_registrati_t *utenti)
 int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 {
     int rc;
-    char *sender = message->hdr.sender;
-    char *receiver = message->data.hdr.receiver;
+    char *sender_name = message->hdr.sender;
+    char *receiver_name = message->data.hdr.receiver;
     op_t op = message->hdr.op;
+    utente_t *sender;
 
     //analizzo richiesta del client
     switch (op)
     {
         case REGISTER_OP:
 
-            rc = registraUtente(sender,fd,utenti);
+            rc = registraUtente(sender_name,fd,utenti);
 
             //se l'utente risulta GIA' essere registrato con quel nick
             if(rc == 1)
             {
-                rc = send_fail_messagge(fd,OP_NICK_ALREADY);
+                rc = send_fail_message(fd,OP_NICK_ALREADY);
             }
             //registrazione utente fallita..
             else if(rc == -1)
@@ -109,12 +109,12 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         case UNREGISTER_OP:
 
-            rc = deregistraUtente(sender,utenti);
+            rc = deregistraUtente(sender_name,utenti);
 
             //se l'utente risulta NON essere registrato con quel nick
             if(rc == 1)
             {
-                rc = send_fail_messagge(fd,OP_NICK_UNKNOWN);
+                rc = send_fail_message(fd,OP_NICK_UNKNOWN);
             }
             //registrazione utente fallita
             else if(rc == -1)
@@ -141,12 +141,12 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         case CONNECT_OP:
 
-            rc = connectUtente(sender,fd,utenti);
+            rc = connectUtente(sender_name,fd,utenti);
 
             //utente non trovato
             if(rc == 1)
             {
-                rc = send_fail_messagge(fd,OP_NICK_UNKNOWN);
+                rc = send_fail_message(fd,OP_NICK_UNKNOWN);
             }
             //connessione utente fallita
             else if(rc == -1)
@@ -173,12 +173,12 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         case DISCONNECT_OP :
 
-            rc = disconnectUtente(sender,utenti);
+            rc = disconnectUtente(sender_name,utenti);
 
             //utente non registrato
             if(rc == 1)
             {
-                rc = send_fail_messagge(fd,OP_NICK_UNKNOWN);
+                rc = send_fail_message(fd,OP_NICK_UNKNOWN);
             }
             //disconnessione utente fallita
             else if(rc == -1)
@@ -206,7 +206,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
         case USRLIST_OP:
 
             //controllo sender sia registrato ed online
-            utente_t *sender = checkSender(sender,utenti);
+            sender = checkSender(sender_name,utenti);
 
             if(sender == NULL)
             {
@@ -233,15 +233,13 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         case POSTTXT_OP:
 
-            rc = inviaMessaggioUtente(sender,receiver,message->data.buf,message->data.hdr.len,utenti);
-
-            //in base all'esito dell'invio del messaggio rispondo al sender
+            rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,utenti);
 
             //in caso di errore
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
 
         default:
-        
+
             rc = send_fail_message(fd,OP_FAIL);
 
             //controllo esito messaggio inviato
@@ -256,5 +254,5 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 int chatty_clients_overflow(int fd)
 {
     //mando OP_FAIL per questo genere di errore
-    return send_fail_messagge(fd,OP_FAIL);
+    return send_fail_message(fd,OP_FAIL);
 }

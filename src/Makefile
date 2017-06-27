@@ -1,15 +1,23 @@
 CC = gcc -std=c99
-CFLAGS = -g -Wall
+CFLAGS = -g -Wall -pedantic -DMAKE_VALGRIND_HAPPY
 INCLUDES = ../include
 LIBS_PATH = ../libs
-LIBS = -lthreadpool -lqueue -lserver -lpthread
+LIBS = -lthreadpool -lqueue -lserver -lpthread -lm
 
 #objects
 server_obj = server_start.o server_init.o
 threadpool_obj = threadpool.o
 queue_obj = queue.o
+chatty_obj = connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o chatty_clients.o
 
 #target
+chatty:
+	make connections.o
+	make chatty_parser.o
+	make messaggi_utenti.o
+	make gestione_utenti.o
+	make chatty_clients.o
+	make libchatty.a
 server:
 	make server_init.o
 	make server_start.o
@@ -21,7 +29,35 @@ queue:
 	make queue.o
 	make libqueue.a
 
+#processi principali
+server_chatty.out:chatty.o
+	$(CC) $(CFLAGS) $(INCLUDES) $< -o $@ $(LIBS_PATH) $LIBS
+
+client_chatty.out:client.o
+	$(CC) $(CFLAGS) $(INCLUDES) $< -o $@ $(LIBS_PATH) $LIBS
+
 #generazione eseguibili
+chatty.o: chatty.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+client.o:client.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+chatty_parser.o:chatty_parser.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+chatty_clients.o:chatty_clients.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+connections.o:connections.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+messaggi_utenti.o:messaggi_utenti.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+gestione_utenti.o:gestione_utenti.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
 server_start.o:server_start.c
 	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
 
@@ -35,6 +71,10 @@ queue.o:queue.c
 	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
 
 #generazione librerie
+libchatty.a: $(chatty_obj)
+	ar rvs $@ $^
+	mv $@ ../libs
+
 libserver.a:$(server_obj)
 	ar rvs $@ $^
 	mv $@ ../libs

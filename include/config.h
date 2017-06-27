@@ -36,6 +36,10 @@
 #define MAX_SERVER_DIR_LENGTH (UNIX_PATH_MAX - (MAX_NAME_LENGTH  + 1) - MAX_ID_LENGTH)
 /* Numero massimo di caratteri per il path della directory personale di un utente */
 #define MAX_CLIENT_DIR_LENGHT (MAX_SERVER_DIR_LENGTH + (MAX_NAME_LENGTH + 1) )
+/* Numero massimo di volte in cui il client puo' ritentare la connessione al server */
+#define MAX_RETRIES 10
+/* Secondi da attendere tra un retry e il successivo */
+#define MAX_SLEEPING 3
 
 
 //Salva la configurazione attuale del server chatty

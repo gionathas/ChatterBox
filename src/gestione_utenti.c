@@ -683,7 +683,7 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
     int rc;
     char *parser; //puntatore di supporto
 
-    if(buff == NULL || Utenti == NULL || size_buff <= 0 || size_buff == NULL || new_size == NULL)
+    if(buff == NULL || Utenti == NULL || size_buff == NULL || new_size == NULL)
     {
         errno = EINVAL;
         return -1;

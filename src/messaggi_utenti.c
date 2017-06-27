@@ -2,6 +2,7 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
+#include<errno.h>
 #include"utenti.h"
 #include"config.h"
 #include"message.h"
@@ -19,7 +20,7 @@ int send_ok_message(int fd,char *buf,unsigned int len)
 
     //setto header e data risposta, sender e receiver non ci interessano
     setHeader(&response.hdr,OP_OK,"");
-    setData(&responde.data,"",buf,len);
+    setData(&response.data,"",buf,len);
 
     //mando header
     rc = sendHeader(fd,&response.hdr);
@@ -28,7 +29,7 @@ int send_ok_message(int fd,char *buf,unsigned int len)
     USER_ERR_HANDLER(rc,-1,-1);
 
     //mando data
-    rc = sendData(fd,&responde.data);
+    rc = sendData(fd,&response.data);
 
     //errore sendData
     USER_ERR_HANDLER(rc,-1,-1);
@@ -36,7 +37,7 @@ int send_ok_message(int fd,char *buf,unsigned int len)
     return 0;
 }
 
-int send_fail_message(int fd,op_t op_fail)
+int send_fail_message(int fd,op_t op_fail,utenti_registrati_t *utenti)
 {
     message_t err_response; //risposta di errore al client
     int rc;
@@ -53,7 +54,7 @@ int send_fail_message(int fd,op_t op_fail)
     //incremento il numero di messaggi di errori inviati dal server
 
     //lock su stat
-    rc = pthread_mutex_lock(chatty->mtx_stat);
+    rc = pthread_mutex_lock(utenti->mtx_stat);
 
     //errore lock
     if(rc)
@@ -63,10 +64,10 @@ int send_fail_message(int fd,op_t op_fail)
     }
 
     //incremento contatore errori
-    ++(chatty->stat.nerrors);
+    ++(utenti->stat->nerrors);
 
     //unlock stat
-    pthread_mutex_unlock(chatty->mtx_stat);
+    pthread_mutex_unlock(utenti->mtx_stat);
 
     return 0;
 }
@@ -111,19 +112,21 @@ static FILE *create_message_file(int id,message_t *msg,char *dir_path)
     return file;
 }
 
-static generate_id_message(utente_t *utente,utenti_registrati_t *utenti)
+static unsigned int generate_id_message(utente_t *utente,utenti_registrati_t *utenti)
 {
+    unsigned int id;
+
     //se la directory receiver piena
-    if(receiver->n_element_in_dir == utenti->max_hist_msgs)
+    if(utente->n_element_in_dir == utenti->max_hist_msgs)
     {
         //dato che tutti i messaggi hanno la stessa importanza,ne scegliamo una a caso da sovrascrivere
         srand(time(NULL));
-        id = (rand() % max_hist_msgs) + 1;
+        id = (rand() % utenti->max_hist_msgs) + 1;
     }
     else{
-        id = receiver->n_element_in_dir + 1;
+        id = utente->n_element_in_dir + 1;
         //incremento numero di messaggi nella directory del receiver
-        ++(receiver->n_element_in_dir);
+        ++(utente->n_element_in_dir);
     }
 
     return id;
@@ -136,12 +139,12 @@ static void write_on_file(FILE *file,message_t *msg)
 
     //scrivo il tipo del messaggio
     if(msg->hdr.op == TXT_MESSAGE)
-        type="Text";
+        snprintf(type,MSG_TYPE_SPACE,"Text");
     else
-        type="File";
+        snprintf(type,MSG_TYPE_SPACE,"File");
 
     //scrivo la size del messaggio
-    snprintf(size_buf,MSG_SIZE_SPACE,"%ld",msg->data.hdr.len);
+    snprintf(size_buf,MSG_SIZE_SPACE,"%d",msg->data.hdr.len);
 
     //scrivo sul file
     fprintf(file,"%s\n%s\n%s\n%s\n",msg->hdr.sender,type,size_buf,msg->data.buf);
@@ -154,12 +157,12 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
     //receiver online,posso mandargli direttamente il messaggio
     if(receiver->isOnline)
     {
-        rc = sendHeader(receiver->fd,text_message->hdr);
+        rc = sendHeader(receiver->fd,&text_message->hdr);
 
         //errore invio header
         USER_ERR_HANDLER(rc,-1,-1);
 
-        rc = sendData(receiver->fd,text_message->data);
+        rc = sendData(receiver->fd,&text_message->data);
 
         //errore invio data
         USER_ERR_HANDLER(rc,-1,-1);
@@ -190,19 +193,19 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
 }
 
 //, -1 errore,,0 ok
-int inviaMessaggioUtente(char *sender,char *receiver,char *msg,size_t size_msg,utenti_registrati_t *utenti)
+int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
 {
     int rc;
 
     //controllo sender sia registrato ed online
-    utente_t *sender = checkSender(sender,utenti);
+    utente_t *sender = checkSender(sender_name,utenti);
 
     if(sender == NULL)
     {
         //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
         if(errno == EPERM || errno == ENETDOWN || errno == 0)
         {
-            rc = send_fail_message(sender->fd,OP_FAIL);
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
         }
         //errore checkSender
         else{
@@ -213,13 +216,13 @@ int inviaMessaggioUtente(char *sender,char *receiver,char *msg,size_t size_msg,u
     else if(size_msg > utenti->max_msg_size)
     {
         //invio errore di messaggio troppo grande
-        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG);
+        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
     }
     //altrimenti sender valido e messaggio valido
     else{
 
         //controllo stato del receiver: Deve essere solo registrato
-        utente_t *receiver = cercaUtente(recv,utenti);
+        utente_t *receiver = cercaUtente(receiver_name,utenti);
 
         //receiver non valido
         if(receiver == NULL)
@@ -227,7 +230,7 @@ int inviaMessaggioUtente(char *sender,char *receiver,char *msg,size_t size_msg,u
             //receiver non registrato oppure nome receiver invalido
             if(errno == 0 || errno == EPERM)
             {
-                rc = send_fail_message(sender->fd,OP_FAIL);
+                rc = send_fail_message(sender->fd,OP_FAIL,utenti);
             }
             //errore ricerca receiver
             else{
@@ -238,12 +241,12 @@ int inviaMessaggioUtente(char *sender,char *receiver,char *msg,size_t size_msg,u
         else
         {
             //preparo messaggio
-            mesagge_t txt_message;
+            message_t txt_message;
 
-            setheader(&txt_message.hdr,TXT_MESSAGE,sender);
-            setData(&txt_message.data,receiver,msg,size_msg);
+            setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
+            setData(&txt_message.data,receiver->nickname,msg,size_msg);
 
-            rc = send_text_message(receiver,&txt_message);
+            rc = send_text_message(receiver,&txt_message,utenti);
 
             //rilascio lock receiver
             pthread_mutex_unlock(&receiver->mtx);

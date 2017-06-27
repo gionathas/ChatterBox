@@ -32,7 +32,7 @@
 
 /* Strutture Dati utili */
 
-/* Struttura per manternere statistiche sul server */
+/* Struttura per mantenere statistiche sul server */
 struct statistics chattyStats = { 0,0,0,0,0,0,0 };
 pthread_mutex_t mtx_chatty_stat;//mutex per proteggere chattyStats
 
@@ -61,9 +61,9 @@ static int server_client_overflow(int fd,void *arg)
     return chatty_clients_overflow(fd);
 }
 
-static int server_client_manager(void *buff,int fd,void* arg)
+static int server_client_manager(void *buff,int fd,void* chatty_utenti)
 {
-    return chatty_client_manager((message_t*)msg,int fd,(server_thread_argument_t*)arg);
+    return chatty_client_manager((message_t*)msg,int fd,(utenti_registrati_t*)chatty_utenti);
 }
 
 /* CHATTY MAIN */
@@ -73,7 +73,6 @@ int main(int argc, char *argv[])
     server_t *server; //istanza del server
     server_config_t config; //variabile per salvare la configurazione attuale del server
     server_function_t funs; //funzioni utili per il server
-    server_thread_argument_t thread_argument; //argomenti per i thread del pool
 
     int rc; //gestione ritorno funzioni
     int curr_error; //gestione errno
@@ -98,11 +97,6 @@ int main(int argc, char *argv[])
         goto main_error1;
     }
 
-    //inizializzo threda argument
-    thread_argument.mtx_stat = &mtx_chatty_stat;
-    thread_argument.stat = &chattyStats;
-    thread_argument.utenti &chattyUtenti;
-
     //inizializzo e configuro il server
     server = init_server("tmp/server",sizeof(message_t),2);
 
@@ -126,7 +120,7 @@ int main(int argc, char *argv[])
     //argomenti per la funzione precedente
     funs.arg_suh = NULL;
     //funzione per gestire comunicazione con il client
-    funs.client_manager_fun = //TODO;
+    funs.client_manager_fun = server_client_manager;
     funs.arg_cmf = (void*)&chattyUtenti;
 
     //faccio partire il server,da ora in poi posso terminarlo solo con un segnale

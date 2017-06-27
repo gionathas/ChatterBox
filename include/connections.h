@@ -16,10 +16,7 @@
 #ifndef CONNECTIONS_H_
 #define CONNECTIONS_H_
 
-#define MAX_RETRIES     10
-#define MAX_SLEEPING     3
 #if !defined(UNIX_PATH_MAX)
-#define UNIX_PATH_MAX  64
 #endif
 
 #include"message.h"

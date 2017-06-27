@@ -5,6 +5,8 @@
  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  * originale dell'autore
  */
+#ifndef UTENTI_H_
+#define UTENTI_H_
 #include<pthread.h>
 #include"config.h"
 
@@ -158,3 +160,5 @@ int disconnectUtente(char *name,utenti_registrati_t *Utenti);
  * @return 0 in caso di successo, -1 errore e setta errno
  */
 int eliminaElenco(utenti_registrati_t *Utenti);
+
+#endif /*UTENTI_H_ */
