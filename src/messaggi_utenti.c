@@ -12,6 +12,10 @@
 #define MSG_TYPE_SPACE 15
 /* Numero di byte che servono per memorizzare in una stringa la size di un messaggio, in un file */
 #define MSG_SIZE_SPACE 6
+/* size del buffer iniziale per la stringa degli utenti online */
+#define INITAL_BUFFER 1000
+/* byte per incrementare la size del buffer della stringa degli utenti online */
+#define BUFFER_INCREMENT 500
 
 int send_ok_message(int fd,char *buf,unsigned int len)
 {
@@ -91,6 +95,49 @@ utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti)
     }
 
     return sender;
+}
+//TODO da reimplementare da campo
+int sendUserOnline(int fd,utenti_registrati_t *utenti)
+{
+    char user_online[MAX_NAME_LENGTH * MAX_USERS]; //stringa dove salvare i nick degli utenti online
+    size_t size = MAX_NAME_LENGTH * MAX_USERS;
+    //int  count = -(BUFFER_INCREMENT); //byte in aggiunta alla stringa degli utenti online,si incrementa ogni volta di 100 byte
+    int new_size; //nuova size della stringa dopo aver scritto i nick al suo interno
+    int rc;
+
+    /*
+    do {
+        new_size = 0;
+        count += BUFFER_INCREMENT;
+
+
+        //se la stringa e' stata gia' allocata,la libero per allocare piu' memoria
+        if(user_online != NULL)
+            free(user_online);
+
+
+        //incremento il buffer
+        size += count;
+        //alloco spazio per stringa
+        user_online = realloc(user_online,size * sizeof(char));
+
+        //esito allocazione
+        USER_ERR_HANDLER(user_online,NULL,-1);
+
+        rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
+
+    } while(rc == -1 && errno == ENOBUFS);//fin quando non trovo una size adatta per la stringa
+    */
+    rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
+
+    //se sono fallito per altro
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    //mando messaggio di ok,con la stringa degli utenti online
+    rc = send_ok_message(fd,user_online,new_size);
+
+    return rc;
+
 }
 
 //ritorna file aperto per sciverci,altrimenti NULL e setta errno

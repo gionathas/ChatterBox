@@ -56,9 +56,9 @@ static int server_signalusr1_handler(void* path_file)
     return printStats((char*)path_file);
 }
 
-static int server_client_overflow(int fd,void *arg)
+static int server_client_overflow(int fd,void *utenti)
 {
-    return chatty_clients_overflow(fd);
+    return chatty_clients_overflow(fd,(utenti_registrati_t*)utenti);
 }
 
 static int server_client_manager(void *msg,int fd,void* chatty_utenti)
@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
     //funzione per gestire troppi client,quest'ultima viene utilizzata dal listener
     funs.client_out_of_bound = server_client_overflow;
     //argomennti per la precedente funzione
-    funs.arg_cob = NULL;
+    funs.arg_cob = (void*)chattyUtenti;
     //funzione per gestire l'arrivo del segnale USR1
     funs.signal_usr_handler = server_signalusr1_handler;
     //argomenti per la funzione precedente
@@ -158,7 +158,7 @@ int main(int argc, char *argv[])
     funs.arg_cmf = (void*)chattyUtenti;
 
     //faccio partire il server,da ora in poi posso terminarlo solo con un segnale
-    rc = start_server(server,config.threads,funs);
+    rc = start_server(server,1,funs);
 
     //controllo esito terminazione server.
     if(rc == -1 || rc > 0)

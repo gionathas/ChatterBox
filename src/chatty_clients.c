@@ -19,51 +19,8 @@
 #define CHATTY_THREAD_ERR_HANDLER(err,val,ret)         \
     do{if( (err) == (val)){return (ret);} }while(0)
 
-/* size del buffer iniziale per la stringa degli utenti online */
-#define INITAL_BUFFER 1000
-/* byte per incrementare la size del buffer della stringa degli utenti online */
-#define BUFFER_INCREMENT 500
 
 /* FUNZIONI INTERFACCIA */
-static int sendUserOnline(int fd,utenti_registrati_t *utenti)
-{
-    char *user_online = NULL; //stringa dove salvare i nick degli utenti online
-    size_t size = INITAL_BUFFER;
-    int  count = -(BUFFER_INCREMENT); //byte in aggiunta alla stringa degli utenti online,si incrementa ogni volta di 100 byte
-    int new_size; //nuova size della stringa dopo aver scritto i nick al suo interno
-    int rc;
-
-    do {
-        new_size = 0;
-        count += BUFFER_INCREMENT;
-
-        //se la stringa e' stata gia' allocata,la libero per allocare piu' memoria
-        if(user_online != NULL)
-            free(user_online);
-
-        //incremento il buffer
-        size += count;
-        //alloco spazio per stringa
-        user_online = malloc(size * sizeof(char));
-
-        //esito allocazione
-        CHATTY_THREAD_ERR_HANDLER(user_online,NULL,-1);
-
-        //inizializzo a stringa vuota
-        user_online = "";
-
-        rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
-
-    } while(rc == -1 && errno == ENOBUFS);//fin quando non trovo una size adatta per la stringa
-
-    //se sono fallito per altro
-    CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-    //mando messaggio di ok,con la stringa degli utenti online
-    return send_ok_message(fd,user_online,new_size);
-}
-
-
 int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 {
     int rc;
@@ -82,7 +39,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //se l'utente risulta GIA' essere registrato con quel nick
             if(rc == 1)
             {
-                rc = send_fail_message(fd,OP_NICK_ALREADY);
+                rc = send_fail_message(fd,OP_NICK_ALREADY,utenti);
             }
             //registrazione utente fallita..
             else if(rc == -1)
@@ -90,7 +47,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido o elenco utenti pieno
                 if(errno == EPERM || errno == ENOMEM)
                 {
-                    rc = send_fail_message(fd,OP_FAIL);
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno registrazione
                 else{
@@ -114,7 +71,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //se l'utente risulta NON essere registrato con quel nick
             if(rc == 1)
             {
-                rc = send_fail_message(fd,OP_NICK_UNKNOWN);
+                rc = send_fail_message(fd,OP_NICK_UNKNOWN,utenti);
             }
             //registrazione utente fallita
             else if(rc == -1)
@@ -122,7 +79,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido
                 if(errno == EPERM)
                 {
-                    rc = send_fail_message(fd,OP_FAIL);
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno deregistrazione
                 else{
@@ -146,7 +103,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //utente non trovato
             if(rc == 1)
             {
-                rc = send_fail_message(fd,OP_NICK_UNKNOWN);
+                rc = send_fail_message(fd,OP_NICK_UNKNOWN,utenti);
             }
             //connessione utente fallita
             else if(rc == -1)
@@ -154,7 +111,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido o utente gia' connesso
                 if(errno == EPERM)
                 {
-                    rc = send_fail_message(fd,OP_FAIL);
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno connessione
                 else{
@@ -178,7 +135,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //utente non registrato
             if(rc == 1)
             {
-                rc = send_fail_message(fd,OP_NICK_UNKNOWN);
+                rc = send_fail_message(fd,OP_NICK_UNKNOWN,utenti);
             }
             //disconnessione utente fallita
             else if(rc == -1)
@@ -186,7 +143,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido o utente gia disconesso
                 if(errno == EPERM)
                 {
-                    rc = send_fail_message(fd,OP_FAIL);
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno disconnessione
                 else{
@@ -213,7 +170,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
                 if(errno == EPERM || errno == ENETDOWN || errno == 0)
                 {
-                    rc = send_fail_message(fd,OP_FAIL);
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //errore checkSender
                 else{
@@ -240,7 +197,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         default:
 
-            rc = send_fail_message(fd,OP_FAIL);
+            rc = send_fail_message(fd,OP_FAIL,utenti);
 
             //controllo esito messaggio inviato
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
@@ -251,8 +208,8 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 }
 
 
-int chatty_clients_overflow(int fd)
+int chatty_clients_overflow(int fd,utenti_registrati_t *utenti)
 {
     //mando OP_FAIL per questo genere di errore
-    return send_fail_message(fd,OP_FAIL);
+    return send_fail_message(fd,OP_FAIL,utenti);
 }

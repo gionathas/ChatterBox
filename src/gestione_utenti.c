@@ -626,20 +626,18 @@ void mostraUtenti(utenti_registrati_t *Utenti)
  * @param name nickname da inserire nel buffer
  * @return puntatore alla prossima posizione libera per inserire nel buffer,altrimenti NULL.
  */
-static char *add_name(char *buffer,size_t *buffer_size,int *new_size,char *name)
+static char *add_name(char buffer[],size_t *buffer_size,int *new_size,const char name[])
 {
-    size_t count = 0;//per contare numero di byte scritti
+    int i = 0; //per scorrere stringhe e contare numero di byte scritti
 
     //finche non arrivo all'ultima lettera del nickname, ed ho spazio nel buffer
-    while(*name != '\0' && *buffer_size > 0)
+    while(name[i] != '\0' && *buffer_size > 0)
     {
         //inserisco lettera
-        *buffer = *name;
+        buffer[i] = name[i];
 
         //aggiorno indici per scorrere il nome
-        ++buffer;
-        ++name;
-        ++count;
+        i++;
 
         //decremento dimensione del buffer
         --*buffer_size;
@@ -651,33 +649,31 @@ static char *add_name(char *buffer,size_t *buffer_size,int *new_size,char *name)
     else
     {
         //metto carattere terminatore
-        *buffer = '\0';
+        buffer[i] = '\0';
 
         //decremento dimensione del buffer
         --*buffer_size;
 
         //aggiorno indici
-        ++count;
-        ++buffer;
+        ++i;
     }
 
     //aggiungo spazi dopo il nick,per occupare tutti i byte
-    while( ( (MAX_NAME_LENGTH + 1 - (count)) > 0 ) && *buffer_size > 0)
+    while( ( (MAX_NAME_LENGTH + 1 - (i)) > 0 ) && *buffer_size > 0)
     {
-        *buffer = ' ';
+        buffer[i] = ' ';
 
-        ++count;
-        ++buffer;
+        ++i;
 
         --*buffer_size;
     }
 
     //se non ho piu' spazio nel buffer,e non ho finito di mettere gli spazi
-    if(*buffer_size == 0 && (MAX_NAME_LENGTH + 1 - (count)) != 0 )
+    if(*buffer_size == 0 && (MAX_NAME_LENGTH + 1 - (i)) != 0 )
         return NULL;
 
     //altrimenti aggiorno la nuova size del buffer..
-    *new_size += count;
+    *new_size += i;
 
     //ritorno la posizione attuale nel buffer,per poter inserire nuovamente
     return (buffer);

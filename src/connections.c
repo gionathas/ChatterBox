@@ -15,7 +15,6 @@
 #include"connections.h"
 #include"config.h"
 
-#define DEBUG
 
 int openConnection(char* path, unsigned int ntimes, unsigned int secs)
 {
