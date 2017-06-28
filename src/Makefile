@@ -2,13 +2,13 @@ CC = gcc -std=c99
 CFLAGS = -g -Wall -pedantic -DMAKE_VALGRIND_HAPPY
 INCLUDES = ../include
 LIBS_PATH = ../libs
-LIBS = -lthreadpool -lqueue -lserver -lpthread -lm
+LIBS = -lserver -lpthread -lchatty -lm -lqueue -lthreadpool
 
 #objects
 server_obj = server_start.o server_init.o
 threadpool_obj = threadpool.o
 queue_obj = queue.o
-chatty_obj = connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o chatty_clients.o
+chatty_obj = chatty.o connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o chatty_clients.o
 
 #target
 chatty:
@@ -31,10 +31,10 @@ queue:
 
 #processi principali
 server_chatty.out:chatty.o
-	$(CC) $(CFLAGS) $(INCLUDES) $< -o $@ $(LIBS_PATH) $LIBS
+	$(CC) $(CFLAGS) -I $(INCLUDES) $< -o $@ -L $(LIBS_PATH) $(LIBS)
 
 client_chatty.out:client.o
-	$(CC) $(CFLAGS) $(INCLUDES) $< -o $@ $(LIBS_PATH) $LIBS
+	$(CC) $(CFLAGS) -I $(INCLUDES) $< -o $@ -L $(LIBS_PATH) $(LIBS)
 
 #generazione eseguibili
 chatty.o: chatty.c

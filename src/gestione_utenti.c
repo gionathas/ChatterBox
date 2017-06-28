@@ -20,6 +20,7 @@
 #include"utenti.h"
 #include"config.h"
 
+#define DEBUG
 /**
  * @function hash
  * @brief Algoritmo di hashing per stringhe
@@ -303,6 +304,10 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
         errno = EINVAL;
         return -1;
     }
+
+    #ifdef DEBUG
+        printf("#DEBUG# media dir:%s\n",Utenti->media_dir);
+    #endif
 
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx_stat);

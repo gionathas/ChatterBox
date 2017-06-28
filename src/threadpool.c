@@ -43,7 +43,7 @@ static void* thread_worker(void* arg)
 
     //cast dell'argomento
     threadpool_t *tp = (threadpool_t*)arg;
-    task_t *mytask;
+    task_t *mytask = NULL;
     int rc;
 
     //fin quando non avviene lo shutdown
@@ -142,7 +142,7 @@ static void* thread_worker(void* arg)
         if(rc == -1)
         {
             rc = errno;
-            goto immediate_termination;
+            goto immediate_termination_2;
         }
 
         #ifdef DEBUG
@@ -153,9 +153,16 @@ static void* thread_worker(void* arg)
     //rilascio mutex del threadpool..
     pthread_mutex_unlock(&tp->mtx);
 
+    //libero memoria da mytask
+    free(mytask);
+
     //..e termino
     pthread_exit((void*)EXIT_SUCCESS);
 
+//error handler
+immediate_termination_2:
+    free(mytask);
+    goto immediate_termination;
 immediate_termination:
     //Mando un segnale di terminazione immediata
     kill(getpid(),SIGTERM);

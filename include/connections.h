@@ -69,6 +69,7 @@ int readData(long fd, message_data_t *data);
  *
  * @return <=0 se c'e' stato un errore
  *         (se <0 errno deve essere settato, se == 0 connessione chiusa)
+ *         altrimenti numero di byte letti.
  */
 int readMsg(long fd, message_t *msg);
 

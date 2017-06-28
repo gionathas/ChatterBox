@@ -33,6 +33,7 @@ static inline int printStats(char* fout_path)
     extern pthread_mutex_t mtx_chatty_stat;
     int rc;
 
+    //creo il file dove andro' scrivere
     FILE *file = fopen(fout_path,"w");
 
     //errore creazione file stati
@@ -44,12 +45,13 @@ static inline int printStats(char* fout_path)
     //errore lock su statistiche
     if(rc)
     {
+        fclose(file);
         errno = rc;
         return -1;
     }
 
     if (fprintf(file, "%ld - %ld %ld %ld %ld %ld %ld %ld\n",
-		(unsigned long)time(NULL),
+        (unsigned long)time(NULL),
 		chattyStats.nusers,
 		chattyStats.nonline,
 		chattyStats.ndelivered,
@@ -57,12 +59,19 @@ static inline int printStats(char* fout_path)
 		chattyStats.nfiledelivered,
 		chattyStats.nfilenotdelivered,
 		chattyStats.nerrors
-		) < 0) return -1;
+    ) < 0)
+    {//errore scrittura
+        fclose(file);
+        pthread_mutex_unlock(&mtx_chatty_stat);
+        return -1;
+    }
 
 
     fflush(file);
 
     pthread_mutex_unlock(&mtx_chatty_stat);
+
+    fclose(file);
 
     return 0;
 }

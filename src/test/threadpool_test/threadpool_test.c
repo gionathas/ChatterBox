@@ -17,7 +17,7 @@ static void signal_hdr(int sig)
 static int dummy_fun(void* arg)
 {
     errno = EINVAL;
-    return -1;
+    return 0;
 }
 
 int main()
@@ -45,6 +45,8 @@ int main()
         perror("on add task");
         return -1;
     }
+
+    rc = threadpool_destroy(&tp);
 
     return res;
 }

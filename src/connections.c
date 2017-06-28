@@ -15,6 +15,8 @@
 #include"connections.h"
 #include"config.h"
 
+#define DEBUG
+
 int openConnection(char* path, unsigned int ntimes, unsigned int secs)
 {
     int fd;
@@ -112,6 +114,7 @@ int readData(long fd, message_data_t *data)
 int readMsg(long fd, message_t *msg)
 {
     int rc;
+    int byte_read = 0;
 
     //controllo parametri
     if(fd < 0 || msg == NULL)
@@ -122,13 +125,34 @@ int readMsg(long fd, message_t *msg)
 
     rc = readHeader(fd,&msg->hdr);
 
+    #ifdef DEBUG
+        printf("header :%d\n",rc);
+    #endif
+
     //controllo connessione chiusa oppure errore
     if(rc <= 0)
     {
         return rc;
     }
 
-    return readData(fd,&msg->data);
+    //altrimenti incremento numero di byte letti
+    byte_read += rc;
+
+    rc = readData(fd,&msg->data);
+
+    #ifdef DEBUG
+        printf("data :%d\n",rc);
+    #endif
+
+    //errore lettura data
+    if(rc == -1)
+        return -1;
+
+    //incremento numero di byte letti
+    byte_read += rc;
+
+    return byte_read;
+
 }
 
 int sendData(long fd, message_data_t *msg)

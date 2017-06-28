@@ -61,18 +61,20 @@ static int server_client_overflow(int fd,void *arg)
     return chatty_clients_overflow(fd);
 }
 
-static int server_client_manager(void *buff,int fd,void* chatty_utenti)
+static int server_client_manager(void *msg,int fd,void* chatty_utenti)
 {
-    return chatty_client_manager((message_t*)msg,int fd,(utenti_registrati_t*)chatty_utenti);
+    return chatty_client_manager((message_t*)msg,fd,(utenti_registrati_t*)chatty_utenti);
 }
 
 /* Distruzione strutture utilizzate da chatty */
 static int chatty_close()
 {
-    //elimino tutto elenco degli utenti registrati
-    rc = eliminaElenco(chattyUtenti)
+    int rc;
 
-    rc = pthread_mutex_destroy(&mtx_stat);
+    //elimino tutto elenco degli utenti registrati
+    rc = eliminaElenco(chattyUtenti);
+
+    rc = pthread_mutex_destroy(&mtx_chatty_stat);
 
     //ritorno esito operazioni
     return rc;
@@ -90,7 +92,7 @@ int main(int argc, char *argv[])
 
     int rc; //gestione ritorno funzioni
     int curr_error; //gestione errno
-    char string_error[STRING_ERROR_SIZE] = NULL; //stringa errore da stampare
+    char string_error[STRING_ERROR_SIZE] = ""; //stringa errore da stampare
 
     //parsing argomenti per chatty,dobbiamo parsare solo un argomento: -f
     c = getopt(argc,argv,"f:");
@@ -103,7 +105,7 @@ int main(int argc, char *argv[])
             break;
 
         case '?':
-        case '-1':
+        case -1:
             usage(argv[0]);
             exit(EXIT_FAILURE);
 
@@ -124,7 +126,7 @@ int main(int argc, char *argv[])
 
     if(chattyUtenti == NULL)
     {
-        string_error = "Chatty: errore inizializzazione utenti";
+        snprintf(string_error,STRING_ERROR_SIZE,"Chatty: Errore inizializzazione utenti");
         curr_error = errno;
         goto main_error1;
     }
@@ -134,7 +136,7 @@ int main(int argc, char *argv[])
 
     if(server == NULL)
     {
-        string_error = "Chatty: errore inizializzazione server";
+        snprintf(string_error,STRING_ERROR_SIZE,"Chatty: Errore inizializzazione server");
         curr_error = errno;
         goto main_error2;
     }
@@ -153,7 +155,7 @@ int main(int argc, char *argv[])
     funs.arg_suh = config.stat_file_name;
     //funzione per gestire comunicazione con il client
     funs.client_manager_fun = server_client_manager;
-    funs.arg_cmf = (void*)&chattyUtenti;
+    funs.arg_cmf = (void*)chattyUtenti;
 
     //faccio partire il server,da ora in poi posso terminarlo solo con un segnale
     rc = start_server(server,config.threads,funs);
@@ -191,7 +193,7 @@ int main(int argc, char *argv[])
     exit(EXIT_SUCCESS);
 
 /* A seguire error handler di chatty,se non sono stati riscontrati errori,non si arriva mai qui */
-main error2:
+main_error2:
     //elimino elenco utenti
     eliminaElenco(chattyUtenti);
     goto main_error1;
