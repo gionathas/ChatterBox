@@ -20,7 +20,6 @@
 #include"utenti.h"
 #include"config.h"
 
-#define DEBUG
 /**
  * @function hash
  * @brief Algoritmo di hashing per stringhe
@@ -305,10 +304,6 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
         return -1;
     }
 
-    #ifdef DEBUG
-        printf("#DEBUG# media dir:%s\n",Utenti->media_dir);
-    #endif
-
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx_stat);
 
@@ -497,14 +492,6 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
             return -1;
     }
 
-    //se l'utente e' gia online
-    if(utente->isOnline == 1)
-    {
-        pthread_mutex_unlock(&utente->mtx);
-        errno = EPERM;
-        return -1;
-    }
-
     utente->isOnline = 1;
     utente->fd = fd;
 
@@ -636,7 +623,7 @@ static char *add_name(char buffer[],size_t *buffer_size,int *new_size,const char
         //inserisco lettera
         buffer[i] = name[i];
 
-        //aggiorno indici per scorrere il nome
+        //aggiorno indice per scorrere il nome
         i++;
 
         //decremento dimensione del buffer
@@ -676,7 +663,7 @@ static char *add_name(char buffer[],size_t *buffer_size,int *new_size,const char
     *new_size += i;
 
     //ritorno la posizione attuale nel buffer,per poter inserire nuovamente
-    return (buffer);
+    return (buffer + i);
 }
 
 int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registrati_t *Utenti)

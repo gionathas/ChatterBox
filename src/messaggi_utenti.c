@@ -17,14 +17,14 @@
 /* byte per incrementare la size del buffer della stringa degli utenti online */
 #define BUFFER_INCREMENT 500
 
+//per questo tipo di messaggio sender e receiver non ci interessano
 int send_ok_message(int fd,char *buf,unsigned int len)
 {
     message_t response;
     int rc;
 
-    //setto header e data risposta, sender e receiver non ci interessano
+    //setto header, sender e receiver non ci interessano
     setHeader(&response.hdr,OP_OK,"");
-    setData(&response.data,"",buf,len);
 
     //mando header
     rc = sendHeader(fd,&response.hdr);
@@ -32,13 +32,18 @@ int send_ok_message(int fd,char *buf,unsigned int len)
     //errore sendHeader
     USER_ERR_HANDLER(rc,-1,-1);
 
-    //mando data
-    rc = sendData(fd,&response.data);
+    //se il buffer non e' vuoto,allora inviamo anche il la data del messaggio
+    if(len != 0 || strcmp(buf,"") != 0)
+    {
+        setData(&response.data,"",buf,len);
+        //mando data
+        rc = sendData(fd,&response.data);
 
-    //errore sendData
-    USER_ERR_HANDLER(rc,-1,-1);
+        //errore sendData
+        USER_ERR_HANDLER(rc,-1,-1);
+    }
 
-    return 0;
+    return rc;
 }
 
 int send_fail_message(int fd,op_t op_fail,utenti_registrati_t *utenti)
@@ -96,38 +101,15 @@ utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti)
 
     return sender;
 }
-//TODO da reimplementare da campo
+
 int sendUserOnline(int fd,utenti_registrati_t *utenti)
 {
     char user_online[MAX_NAME_LENGTH * MAX_USERS]; //stringa dove salvare i nick degli utenti online
     size_t size = MAX_NAME_LENGTH * MAX_USERS;
     //int  count = -(BUFFER_INCREMENT); //byte in aggiunta alla stringa degli utenti online,si incrementa ogni volta di 100 byte
-    int new_size; //nuova size della stringa dopo aver scritto i nick al suo interno
+    int new_size = 0; //nuova size della stringa dopo aver scritto i nick al suo interno
     int rc;
 
-    /*
-    do {
-        new_size = 0;
-        count += BUFFER_INCREMENT;
-
-
-        //se la stringa e' stata gia' allocata,la libero per allocare piu' memoria
-        if(user_online != NULL)
-            free(user_online);
-
-
-        //incremento il buffer
-        size += count;
-        //alloco spazio per stringa
-        user_online = realloc(user_online,size * sizeof(char));
-
-        //esito allocazione
-        USER_ERR_HANDLER(user_online,NULL,-1);
-
-        rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
-
-    } while(rc == -1 && errno == ENOBUFS);//fin quando non trovo una size adatta per la stringa
-    */
     rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
 
     //se sono fallito per altro

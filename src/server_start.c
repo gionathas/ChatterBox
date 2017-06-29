@@ -503,7 +503,8 @@ static int init_worker(void *arg)
         {
             goto work_error;
         }
-        else if(rc == 0) //eof del client
+        //connessione con il client chiusa
+        else if(rc == 0)
         {
             //setto questo fd come da rimuovere,nella coda dei descrittori da aggiornare
             elem.op = REMOVE;

@@ -138,7 +138,7 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
  * @return 0 utente connesso correttamente, -1 errore e setta errno,
  *         altrimenti 1 utente non registrato
  *
- * @note errno = EPERM se il nome non e' valido, o se l'utente e' gia connesso
+ * @note errno = EPERM se il nome non e' valido.
  */
 int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti);
 
@@ -149,7 +149,7 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti);
  * @param Utenti elenco utenti registrati
  * @return 0 utente disconnesso correttamente, -1 errore e setta errno,
  *         altrimenti 1 utente non registrato
- * @note errno = EPERM se il nome non e' valido
+ * @note errno = EPERM se il nome non e' valido oppure l'utente non e' online
  */
 int disconnectUtente(char *name,utenti_registrati_t *Utenti);
 

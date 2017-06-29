@@ -15,6 +15,20 @@
 #include"connections.h"
 #include"config.h"
 
+//1 connessione chiusa,0 ancora aperta
+static inline int connection_closed(int read_result)
+{
+    //caso in cui la connessione e' chiusa
+    if(read_result == 0 || ( (read_result == -1) && (errno == ECONNRESET || errno == EPIPE) ))
+    {
+        //risetto errno a 0
+        errno = 0;
+        return 1;
+    }
+
+    else
+        return 0;
+}
 
 int openConnection(char* path, unsigned int ntimes, unsigned int secs)
 {
@@ -68,6 +82,7 @@ int openConnection(char* path, unsigned int ntimes, unsigned int secs)
 
 int readHeader(long connfd, message_hdr_t *hdr)
 {
+    int rc;
     //controllo parametri
     if(connfd < 0 || hdr == NULL)
     {
@@ -75,7 +90,15 @@ int readHeader(long connfd, message_hdr_t *hdr)
         return -1;
     }
 
-    return read(connfd,hdr,sizeof(message_hdr_t));
+    rc = read(connfd,hdr,sizeof(message_hdr_t));
+
+    //connessione chiusa
+    if(connection_closed(rc))
+        return 0;
+    //ritorno esito della read
+    else
+        //ritorno esito read
+        return rc;
 }
 
 int readData(long fd, message_data_t *data)
@@ -93,8 +116,11 @@ int readData(long fd, message_data_t *data)
     rc = read(fd,&data->hdr,sizeof(message_data_hdr_t));
 
     //connessione chiusa oppure errore nella read
-    if(rc <= 0)
-        return rc;
+    if(connection_closed(rc))
+        return 0;
+    //errore connessione
+    if(rc == -1)
+        return -1;
 
     //alloco spazio per il buffer del messaggio
     size_t len = data->hdr.len * sizeof(char);
@@ -107,6 +133,11 @@ int readData(long fd, message_data_t *data)
     //ora posso leggere il buffer del messaggio
     rc = read(fd,data->buf,len);
 
+    //controllo connessione chiusa
+    if(connection_closed(rc))
+        return 0;
+
+    //ritorno esito ultima read
     return rc;
 }
 
