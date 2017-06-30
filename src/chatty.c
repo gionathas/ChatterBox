@@ -66,6 +66,11 @@ static int server_client_manager(void *msg,int fd,void* chatty_utenti)
     return chatty_client_manager((message_t*)msg,fd,(utenti_registrati_t*)chatty_utenti);
 }
 
+static int server_disconnect_client(int fd,void *arg)
+{
+    return chatty_disconnect_client(fd);
+}
+
 /* Distruzione strutture utilizzate da chatty */
 static int chatty_close()
 {
@@ -156,6 +161,9 @@ int main(int argc, char *argv[])
     //funzione per gestire comunicazione con il client
     funs.client_manager_fun = server_client_manager;
     funs.arg_cmf = (void*)chattyUtenti;
+    //funzione per la disconnessione di un client
+    funs.disconnect_client = server_disconnect_client;
+    funs.arg_dc = NULL;
 
     //faccio partire il server,da ora in poi posso terminarlo solo con un segnale
     rc = start_server(server,1,funs);

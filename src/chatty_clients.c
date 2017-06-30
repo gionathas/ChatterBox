@@ -128,38 +128,6 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
             break;
 
-        case DISCONNECT_OP :
-
-            rc = disconnectUtente(sender_name,utenti);
-
-            //utente non registrato
-            if(rc == 1)
-            {
-                rc = send_fail_message(fd,OP_NICK_UNKNOWN,utenti);
-            }
-            //disconnessione utente fallita
-            else if(rc == -1)
-            {
-                //..nome non valido o utente gia disconesso
-                if(errno == EPERM)
-                {
-                    rc = send_fail_message(fd,OP_FAIL,utenti);
-                }
-                //..errore interno disconnessione
-                else{
-                    return -1;
-                }
-            }
-            else{
-                //mando messaggio di OP_OK,qui il data Message non mi interessa
-                rc = send_ok_message(fd,"", 0);
-            }
-
-            //errore operazione precedente
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
-            break;
-
         case USRLIST_OP:
 
             //controllo sender sia registrato ed online
@@ -207,6 +175,10 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
     return 0;
 }
 
+int chatty_disconnect_client(int fd)
+{    
+    return disconnectUtente(sender_name,utenti);
+}
 
 int chatty_clients_overflow(int fd,utenti_registrati_t *utenti)
 {

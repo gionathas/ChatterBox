@@ -78,6 +78,9 @@ static void *arg_suh;
 static int (*client_out_of_bound)(int,void*);
 static void *arg_cob;
 
+static int (*disconnect_client)(int,void*);
+static void *arg_dc;
+
 static int (*read_message_fun)(int,void*);
 
 /*Flag segnali */
@@ -506,6 +509,15 @@ static int init_worker(void *arg)
         //connessione con il client chiusa
         else if(rc == 0)
         {
+            //disconetto il client
+            rc = disconnect_client(wa->fd_client,arg_dc);
+
+            //errore nella disconnessione
+            if(rc == -1)
+            {
+                goto work_error;
+            }
+
             //setto questo fd come da rimuovere,nella coda dei descrittori da aggiornare
             elem.op = REMOVE;
         }
@@ -914,6 +926,9 @@ int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
 
     client_out_of_bound = funs.client_out_of_bound;
     arg_cob = funs.arg_cob;
+
+    disconnect_client = funs.disconnect_client;
+    arg_dc = funs.arg_dc;
 
     read_message_fun = funs.read_message_fun;
 

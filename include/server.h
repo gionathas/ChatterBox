@@ -57,6 +57,8 @@ typedef struct{
     void *arg_suh;
     int (*client_out_of_bound)(int,void*);//1 fd, 2 argomenti
     void *arg_cob;
+    int (*disconnect_client)(int,void*)//1 fd,2 argomenti
+    void *arg_dc;
 }server_function_t;
 
 /**

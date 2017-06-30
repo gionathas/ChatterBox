@@ -20,6 +20,19 @@
 #include"utenti.h"
 #include"config.h"
 
+/* Size dell'array che contiene gli fd degli utenti */
+#define FD_UTENTI_LEN (MAX_USERS) + 4
+
+//struttura per un fd relativo ad un utente
+typedef struct{
+    int count;
+    pthread_mutex_t mtx;
+    pthread_cond_t cond;
+}fd_utente_t;
+
+/* Insieme delgi fd degli utenti,viene utilizzato per tener conto di quali fd sono attualmente utilizzati dagli utenti*/
+static fd_utente_t fd_utenti[FD_UTENTI_LEN];
+
 /**
  * @function hash
  * @brief Algoritmo di hashing per stringhe
@@ -184,6 +197,30 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
     utenti->max_hist_msgs = hist_size;
     strncpy(utenti->media_dir,dirpath,MAX_SERVER_DIR_LENGTH);
 
+    //inizializzo struttura per gestire gli fd degli utenti
+    for (size_t i = 0; i < FD_UTENTI_LEN; i++)
+    {
+        fd_utenti[i].count = 0;
+        rc = pthread_mutex_init(&fd_utenti[i].mtx,NULL);
+        rc = pthread_cond_init(&fd_utenti[i].cond,NULL);
+
+        //errore inizializzazione struttura
+        if(rc)
+        {
+            //dealloco tutto
+            for (size_t i = 0; i < MAX_USERS; i++)
+            {
+                pthread_mutex_destroy(&utenti->elenco[i].mtx);
+            }
+
+            free(utenti->elenco);
+            free(utenti);
+
+            errno = rc;
+            return -1;
+        }
+    }
+
     //creo la directory del server,se non e' gia' presente
     if (stat(dirpath, &st) == -1)
     {
@@ -200,6 +237,12 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
             for (size_t i = 0; i < MAX_USERS; i++)
             {
                 pthread_mutex_destroy(&utenti->elenco[i].mtx);
+            }
+
+            for (size_t i = 0; i < FD_UTENTI_LEN; i++)
+            {
+                pthread_mutex_destroy(&fd_utenti[i].mtx);
+                pthread_cond_destroy(&fd_utenti[i].cond);
             }
 
             free(utenti->elenco);
@@ -285,6 +328,75 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
 
     //utente non registrato
     return NULL;
+}
+
+static int setFD(utente_t *utente,unsigned int fd)
+{
+    //prendo lock sulla posizione in base all'fd
+    rc = pthread_mutex_lock(fd_utenti[fd].mtx);
+
+    //errore lock
+    if(rc)
+    {
+        errno = rc;
+        return -1;
+    }
+
+    //fin quando ci sono altri client con quell'fd,attendo che si disconnettano
+    while(fd_utenti[fd].count != 0)
+    {
+        rc = pthread_cond_wait(&fd_utenti[fd].cond,&fd_utenti[fd].mtx);
+
+        //errore wait
+        if(rc)
+        {
+            //rilascio lock fd utenti
+            pthread_mutex_unlock(&fd_utenti[fd].mtx);
+            errno = rc;
+            return -1;
+        }
+    }
+
+    //a questo punto posso inserire il mio fd
+    utente->fd = fd;
+    //incremento la posizione di quell'fd in quanto utilizzato ora da questo utente
+    ++fd_utenti[fd].count;
+
+    //rilascio lock fd utenti
+    pthread_mutex_unlock(&fd_utenti[fd].mtx);
+
+    return 0;
+}
+
+static int unsetFD(unsigned int fd)
+{
+    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
+
+    //errore lock
+    if(rc)
+    {
+        errno = rc;
+        return -1;
+    }
+
+    //decremento il contatore di quell'fd in quanto non e' piu' utilizzato da questo utente
+    --fd_utenti[fd].count;
+
+    //sveglio eventuale utente in attesa del fd
+    rc = pthread_cond_signal(&fd_utenti[fd].cond);
+
+    if(rc)
+    {
+        //rilascio lock fd utenti
+        pthread_mutex_unlock(&fd_utenti[fd].mtx);
+        errno = rc;
+        return -1;
+    }
+
+    //rilascio lock fd utenti
+    pthread_mutex_unlock(&fd_utenti[fd].mtx);
+
+    return 0;
 }
 
 int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
@@ -380,8 +492,22 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     strncpy(Utenti->elenco[hashIndex].nickname,name,MAX_NAME_LENGTH);
     Utenti->elenco[hashIndex].isInit = 1;
     Utenti->elenco[hashIndex].isOnline = 1;
-    Utenti->elenco[hashIndex].fd = fd;
     Utenti->elenco[hashIndex].n_element_in_dir = 0;
+
+    /*
+       Per inserire l'fd relativo a questo utente devo assicurarmi che nessun altro utente
+       stia utilizzando lo stesso fd. Questo puo' accadere quando un utente si disconnette e un altro
+       si riconnette con lo stesso fd
+    */
+    rc = setFD(Utenti->elenco[hashIndex],fd);
+
+    //controllo esito setFD
+    if(rc == -1)
+    {
+        //rilascio lock utente inserito
+        pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
+        return -1;
+    }
 
     //creo la directory personale dell'utente:
 
@@ -446,6 +572,17 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
     //setto flag per segnalare che la posizione da ora in poi e' libera
     utente->isInit = 0;
 
+    //rimuovo l'fd da lui utilizzato per connettersi
+    rc = unsetFD(utente->fd);
+
+    //errore unsetFD
+    if(rc == -1)
+    {
+        //rilascio lock utente
+        pthread_mutex_unlock(&utente->mtx);
+        return -1;
+    }
+
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
 
@@ -492,8 +629,17 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
             return -1;
     }
 
+    //setto info su utente
     utente->isOnline = 1;
-    utente->fd = fd;
+
+    rc = setFD(utente,fd);
+
+    if(rc == -1)
+    {
+        //rilascio lock utente
+        pthread_mutex_unlock(&utente->mtx);
+        return -1;
+    }
 
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
@@ -517,36 +663,33 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     return 0;
 }
 
-int disconnectUtente(char *name,utenti_registrati_t *Utenti)
+int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti)
 {
-    int rc;
+    int rc,end = 0,i = 0;
 
-    utente_t *utente;
-
-    utente = cercaUtente(name,Utenti);
-
-    if(utente == NULL)
+    while(i < MAX_USERS && !end)
     {
-        //utente non registrato
-        if(errno == 0)
-            return 1;
-        else //errore ricerca utente
-            return -1;
+        utente_t *utente = Utenti->elenco[i];
+
+        pthread_mutex_lock(utente->mtx);
+
+        if(utente->isInit)
+        {
+            //fd combacia
+            if(utente->fd == fd)
+            {
+                unsetFD(fd);
+                utente->isInit = 0;
+                end = 1;
+            }
+        }
+
+        pthread_mutex_unlock(utente->mtx);
     }
 
-    //se l'utente non risulta essere online
-    if(utente->isOnline == 0)
-    {
-        pthread_mutex_unlock(&utente->mtx);
-        errno = EPERM;
+    //fd non trovato
+    if(i == MAX_USERS)
         return -1;
-    }
-
-    //disconnetto..
-    utente->isOnline = 0;
-
-    //rilascio lock utente
-    pthread_mutex_unlock(&utente->mtx);
 
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx_stat);
@@ -737,6 +880,21 @@ int eliminaElenco(utenti_registrati_t *Utenti)
         rc = pthread_mutex_destroy(&Utenti->elenco[i].mtx);
 
         //esito init
+        if(rc)
+        {
+            free(Utenti->elenco);
+            free(Utenti);
+            errno = rc;
+            return -1;
+        }
+    }
+
+    for (size_t i = 0; i < FD_UTENTI_LEN; i++)
+    {
+        rc = pthread_mutex_destroy(&fd_utenti[i].mtx);
+        rc = pthread_cond_destroy(&fd_utenti[i].cond);
+
+        //errore distruzione mutex o cond
         if(rc)
         {
             free(Utenti->elenco);
