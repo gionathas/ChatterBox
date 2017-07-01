@@ -151,7 +151,7 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti);
  *         altrimenti 1 utente non registrato
  * @note errno = EPERM se il nome non e' valido oppure l'utente non e' online
  */
-int disconnectUtente(char *name,utenti_registrati_t *Utenti);
+ int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti);
 
 /**
  * @function eliminaElenco

@@ -125,12 +125,12 @@ int sendUserOnline(int fd,utenti_registrati_t *utenti)
 //ritorna file aperto per sciverci,altrimenti NULL e setta errno
 static FILE *create_message_file(int id,message_t *msg,char *dir_path)
 {
-    char msg_id[MAX_ID_LENGTH + 1] = ""; //per memorizzare id sottoforma di stringa
+    char msg_id[MAX_ID_LENGTH + 1]; //per memorizzare id sottoforma di stringa
 
     //trasformo l'id in stringa
     snprintf(msg_id,MAX_ID_LENGTH + 1,"%d",id);
 
-    char path_file[UNIX_PATH_MAX] = ""; //path del file
+    char path_file[UNIX_PATH_MAX]; //path del file
 
     //creo il path del file
     snprintf(path_file,UNIX_PATH_MAX,"%s/%s",dir_path,msg_id);

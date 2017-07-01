@@ -16,6 +16,5 @@ int chatty_parser(char *pathfile,server_config_t *config);
 int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti);
 //gestione del caso troppi client,e' un caso che gestisce il listener
 int chatty_clients_overflow(int fd,utenti_registrati_t *utenti);
-int chatty_disconnect_client(int fd);
-
+int chatty_disconnect_client(int fd,utenti_registrati_t *utenti);
 #endif /* CHATTY_TASK_H_ */

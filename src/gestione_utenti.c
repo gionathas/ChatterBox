@@ -217,7 +217,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
             free(utenti);
 
             errno = rc;
-            return -1;
+            return NULL;
         }
     }
 
@@ -332,8 +332,10 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
 
 static int setFD(utente_t *utente,unsigned int fd)
 {
+    int rc;
+
     //prendo lock sulla posizione in base all'fd
-    rc = pthread_mutex_lock(fd_utenti[fd].mtx);
+    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
 
     //errore lock
     if(rc)
@@ -370,6 +372,8 @@ static int setFD(utente_t *utente,unsigned int fd)
 
 static int unsetFD(unsigned int fd)
 {
+    int rc;
+
     rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
 
     //errore lock
@@ -499,7 +503,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
        stia utilizzando lo stesso fd. Questo puo' accadere quando un utente si disconnette e un altro
        si riconnette con lo stesso fd
     */
-    rc = setFD(Utenti->elenco[hashIndex],fd);
+    rc = setFD(&Utenti->elenco[hashIndex],fd);
 
     //controllo esito setFD
     if(rc == -1)
@@ -574,6 +578,9 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
 
     //rimuovo l'fd da lui utilizzato per connettersi
     rc = unsetFD(utente->fd);
+
+    //setto un fd invalido
+    utente->fd = 0;
 
     //errore unsetFD
     if(rc == -1)
@@ -665,13 +672,13 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
 
 int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti)
 {
-    int rc,end = 0,i = 0;
+    int rc,i = 0,find = 0;
 
-    while(i < MAX_USERS && !end)
+    while(i < MAX_USERS && !find)
     {
-        utente_t *utente = Utenti->elenco[i];
+        utente_t *utente = &Utenti->elenco[i];
 
-        pthread_mutex_lock(utente->mtx);
+        pthread_mutex_lock(&utente->mtx);
 
         if(utente->isInit)
         {
@@ -679,17 +686,22 @@ int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti)
             if(utente->fd == fd)
             {
                 unsetFD(fd);
-                utente->isInit = 0;
-                end = 1;
+                utente->isOnline = 0;
+                utente->fd = 0;
+                find = 1;
             }
         }
 
-        pthread_mutex_unlock(utente->mtx);
+        pthread_mutex_unlock(&utente->mtx);
+
+        //se non l'abbiamo ancora trovato continuiamo a scorrere
+        if(!find)
+            i++;
     }
 
-    //fd non trovato
+    //se non lo abbiamo trovato ritorniamo normalmente
     if(i == MAX_USERS)
-        return -1;
+        return 0;
 
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx_stat);
@@ -718,6 +730,9 @@ void mostraUtenti(utenti_registrati_t *Utenti)
         return;
     }
 
+
+    printf("######################\n");
+
     for (size_t i = 0; i < MAX_USERS; i++)
     {
         //lock su utente
@@ -736,15 +751,20 @@ void mostraUtenti(utenti_registrati_t *Utenti)
 
             //online?
             if(Utenti->elenco[i].isOnline)
-                printf("online\n");
+                printf("online ");
             else
-                printf("offline\n");
+                printf("offline ");
+
+            printf("fd: %d\n",Utenti->elenco[i].fd);
 
         }
 
         //unlock su utente
         pthread_mutex_unlock(&Utenti->elenco[i].mtx);
     }
+
+    printf("######################\n");
+
 }
 
 /**

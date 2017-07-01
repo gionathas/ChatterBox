@@ -9,12 +9,15 @@
 #include<stdlib.h>
 #include<errno.h>
 #include<pthread.h>
+#include<string.h>
 #include"message.h"
 #include"chatty_task.h"
 #include"config.h"
 #include"ops.h"
 #include"utenti.h"
 #include"messaggi_utenti.h"
+
+#define DEBUG
 
 #define CHATTY_THREAD_ERR_HANDLER(err,val,ret)         \
     do{if( (err) == (val)){return (ret);} }while(0)
@@ -171,13 +174,17 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
     }
 
+    #ifdef DEBUG
+        mostraUtenti(utenti);
+    #endif
+
     //client gestito correttamente
     return 0;
 }
 
-int chatty_disconnect_client(int fd)
-{    
-    return disconnectUtente(sender_name,utenti);
+int chatty_disconnect_client(int fd,utenti_registrati_t *utenti)
+{
+    return disconnectUtente(fd,utenti);
 }
 
 int chatty_clients_overflow(int fd,utenti_registrati_t *utenti)
