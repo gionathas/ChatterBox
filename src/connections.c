@@ -15,10 +15,12 @@
 #include"connections.h"
 #include"config.h"
 
-//1 connessione chiusa,0 ancora aperta
+#define DEBUG
+
+//1 connessione chiusa,0 ancora aperta oppure errore
 static inline int connection_closed(int read_result)
 {
-    //caso in cui la connessione e' chiusa
+    //caso in cui la connessione con il client e' terminata
     if(read_result == 0 || ( (read_result == -1) && (errno == ECONNRESET || errno == EPIPE) ))
     {
         //risetto errno a 0
@@ -117,10 +119,16 @@ int readData(long fd, message_data_t *data)
 
     //connessione chiusa oppure errore nella read
     if(connection_closed(rc))
+    {
         return 0;
-    //errore connessione
-    if(rc == -1)
-        return -1;
+    }
+    else{
+        //errore connessione
+        if(errno != 0)
+            return -1;
+    }
+
+    //se arrivo qui la connessione con il client e' ancora aperta
 
     //alloco spazio per il buffer del messaggio
     size_t len = data->hdr.len * sizeof(char);
@@ -256,6 +264,7 @@ int sendRequest(long fd, message_t *msg)
 
     //mando data del messaggio
     rc = sendData(fd,&msg->data);
+
 
     return rc;
 }

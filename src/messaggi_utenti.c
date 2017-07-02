@@ -163,8 +163,8 @@ static unsigned int generate_id_message(utente_t *utente,utenti_registrati_t *ut
 
 static void write_on_file(FILE *file,message_t *msg)
 {
-    char type[MSG_TYPE_SPACE] = ""; //per memorizzare in una stringa il tipo del messaggio
-    char size_buf[MSG_SIZE_SPACE] = ""; //per memorizzare in una stringa la size del messaggio
+    char type[MSG_TYPE_SPACE]; //per memorizzare in una stringa il tipo del messaggio
+    char size_buf[MSG_SIZE_SPACE]; //per memorizzare in una stringa la size del messaggio
 
     //scrivo il tipo del messaggio
     if(msg->hdr.op == TXT_MESSAGE)

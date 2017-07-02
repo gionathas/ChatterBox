@@ -5,7 +5,8 @@
  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  * originale dell'autore
  */
-
+ /*macro per warning di funzioni */
+#define _BSD_SOURCE
 #define _POSIX_C_SOURCE 200112L
 #include<sys/types.h>
 #include<sys/socket.h>
@@ -697,6 +698,7 @@ static void* listener(void *arg)
          #endif
 
          //prima di bloccarmi sulla select,controllo se sono arrivati segnali
+         usleep(10000);
          if(!run || updateSet || sigusr)
              continue;
 
