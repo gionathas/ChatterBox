@@ -134,7 +134,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
         case USRLIST_OP:
 
             //controllo sender sia registrato ed online
-            sender = checkSender(sender_name,utenti);
+            sender = checkSender(sender_name,utenti,NULL);
 
             if(sender == NULL)
             {
@@ -162,6 +162,15 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
         case POSTTXT_OP:
 
             rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,utenti);
+
+            //in caso di errore
+            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+
+            break;
+
+        case POSTTXTALL_OP:
+
+            rc = inviaMessaggioUtenti(sender_name,message->data.buf,message->data.hdr.len,utenti);
 
             //in caso di errore
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);

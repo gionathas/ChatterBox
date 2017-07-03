@@ -81,10 +81,10 @@ int send_fail_message(int fd,op_t op_fail,utenti_registrati_t *utenti)
     return 0;
 }
 
-utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti)
+utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti,int *pos)
 {
     //controllo sender sia registrato
-    utente_t *sender = cercaUtente(sender_name,utenti);
+    utente_t *sender = cercaUtente(sender_name,utenti,pos);
 
     //sender non valido o non registrato o errore
     USER_ERR_HANDLER(sender,NULL,NULL);
@@ -257,12 +257,13 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
     int rc;
 
     //controllo sender sia registrato ed online
-    utente_t *sender = checkSender(sender_name,utenti);
+    utente_t *sender = checkSender(sender_name,utenti,NULL);
 
     if(sender == NULL)
     {
-        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
-        if(errno == EPERM || errno == ENETDOWN || errno == 0)
+        /* se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato,
+           oppure si sta cercando di autoinviarsi un messaggio */
+        if(errno == EPERM || errno == ENETDOWN || errno == 0 || strcmp(sender_name,receiver_name) == 0)
         {
             rc = send_fail_message(sender->fd,OP_FAIL,utenti);
         }
@@ -281,7 +282,7 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
     else{
 
         //controllo stato del receiver: Deve essere solo registrato
-        utente_t *receiver = cercaUtente(receiver_name,utenti);
+        utente_t *receiver = cercaUtente(receiver_name,utenti,NULL);
 
         //receiver non valido
         if(receiver == NULL)
@@ -329,6 +330,89 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
     }
 
     //controllo esito invio messaggio
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    return 0;
+}
+
+int inviaMessaggioUtenti(char *sender_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
+{
+    int rc;
+    int sender_pos;
+
+    //controllo sender sia registrato ed online
+    utente_t *sender = checkSender(sender_name,utenti,&sender_pos);
+
+    if(sender == NULL)
+    {
+        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+        if(errno == EPERM || errno == ENETDOWN || errno == 0)
+        {
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+        }
+        //errore checkSender
+        else{
+            return -1;
+        }
+    }
+    //controllo dimensione messaggio
+    else if(size_msg > utenti->max_msg_size)
+    {
+        //invio errore di messaggio troppo grande
+        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+    }
+    else
+    {
+        //preparo messaggio
+        message_t txt_message;
+
+        setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
+        setData(&txt_message.data,"",msg,size_msg);
+
+        //scorro tutti gli utenti registrati
+        for (size_t i = 0; i < MAX_USERS; i++)
+        {
+            //caso in cui analizzo il sender.Vado alla prossima iterazione.
+            if(sender_pos == i)
+                continue;
+
+            utente_t *receiver = &utenti->elenco[i];
+
+            rc = pthread_mutex_lock(&receiver->mtx);
+
+            if(rc)
+            {
+                errno = rc;
+                return -1;
+            }
+
+            //se e' un utente registrato,gli mando il messaggio
+            if(receiver->isInit)
+            {
+                rc = send_text_message(receiver,&txt_message,utenti);
+            }
+
+            pthread_mutex_unlock(&receiver->mtx);
+
+            //errore in send_text_message
+            if(rc == -1)
+            {
+                //rilascio lock del sender
+                pthread_mutex_unlock(&sender->mtx);
+
+                return -1;
+            }
+
+        }
+
+        //se non ci sono stati errori mando risposta al sender di OP_OK
+        rc = send_ok_message(sender->fd,"",0);
+
+        //solo ora posso rilasciare lock del sender
+        pthread_mutex_unlock(&sender->mtx);
+    }
+
+    //controllo esito del messaggio di risposta al sender
     USER_ERR_HANDLER(rc,-1,-1);
 
     return 0;

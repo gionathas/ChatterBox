@@ -74,6 +74,7 @@ typedef struct{
  * @brief cerca un utente all'interno dei registrati
  * @param name nome utente
  * @param Utenti elenco utenti registrati
+ * @param pos se specificato,ritorna la posizione nell'elenco dell'utente cercato
  * @return puntatore all'utente in caso sia registrato,altrimenti NULL se non e' stato ancora registrato
  *
  * @note se ritorna NULL ed errno e' settato c'e' stato un errore.In particolare se errno vale
@@ -81,7 +82,7 @@ typedef struct{
  *
  * @warning se l'utente e' stato trovato viene ritornato con la lock su di esso.
  */
-utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti);
+ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos);
 
 /**
  * @function registraUtente

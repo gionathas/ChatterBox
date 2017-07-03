@@ -257,7 +257,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
 }
 
 
-utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
+utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
 {
     int rc;
 
@@ -273,6 +273,10 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
         errno = EINVAL;
         return NULL;
     }
+
+    //se pos e' specificato,fin quando non lo trovo la posizione sara' -1
+    if(pos != NULL)
+        *pos = -1;
 
     //ottengo posizione tramite hash
     int hashIndex = hash(name,MAX_USERS);
@@ -294,6 +298,11 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti)
         //se i nick sono uguali,abbiamo trovato l'utente
         if(strcmp(Utenti->elenco[hashIndex].nickname,name) == 0)
         {
+            //ritorno la posizione in cui si trova nell'elenco l'utente cercato
+            if(pos != NULL)
+                *pos = hashIndex;
+
+            //ritorno puntatore all'utente senza rilasciare la lock
             return &Utenti->elenco[hashIndex];
         }
 
@@ -442,7 +451,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     pthread_mutex_unlock(Utenti->mtx_stat);
 
     //Controllo se il nick non sia gia' registrato
-    utente_t *already_reg = cercaUtente(name,Utenti);
+    utente_t *already_reg = cercaUtente(name,Utenti,NULL);
 
     //utente gia' registrato
     if(already_reg != NULL)
@@ -559,7 +568,7 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
 {
     int rc;
 
-    utente_t *utente = cercaUtente(name,Utenti);
+    utente_t *utente = cercaUtente(name,Utenti,NULL);
 
     if(utente == NULL)
     {
@@ -625,7 +634,7 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
 
     utente_t *utente;
 
-    utente = cercaUtente(name,Utenti);
+    utente = cercaUtente(name,Utenti,NULL);
 
     if(utente == NULL)
     {
