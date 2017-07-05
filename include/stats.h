@@ -60,7 +60,7 @@ static inline int printStats(char* fout_path)
 		chattyStats.nfilenotdelivered,
 		chattyStats.nerrors
     ) < 0)
-    {//errore scrittura
+    {//errore scritturapo
         fclose(file);
         pthread_mutex_unlock(&mtx_chatty_stat);
         return -1;

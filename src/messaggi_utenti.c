@@ -7,6 +7,7 @@
 #include"config.h"
 #include"message.h"
 #include"connections.h"
+#include"messaggi_utenti.h"
 
 /* Numero di byte che servono per memorizzare in una stringa il tipo di un messaggio, in un file */
 #define MSG_TYPE_SPACE 15
@@ -125,15 +126,30 @@ int sendUserOnline(int fd,utenti_registrati_t *utenti)
 //ritorna file aperto per sciverci,altrimenti NULL e setta errno
 static FILE *create_message_file(int id,message_t *msg,char *dir_path)
 {
+    int rc;
     char msg_id[MAX_ID_LENGTH + 1]; //per memorizzare id sottoforma di stringa
 
     //trasformo l'id in stringa
-    snprintf(msg_id,MAX_ID_LENGTH + 1,"%d",id);
+    rc = snprintf(msg_id,MAX_ID_LENGTH + 1,"%d",id);
+
+    //controllo errore scrittura
+    if(rc < 0)
+    {
+        errno = EIO;
+        return NULL;
+    }
 
     char path_file[UNIX_PATH_MAX]; //path del file
 
     //creo il path del file
-    snprintf(path_file,UNIX_PATH_MAX,"%s/%s",dir_path,msg_id);
+    rc = snprintf(path_file,UNIX_PATH_MAX,"%s/%s",dir_path,msg_id);
+
+    //controllo errore scrittura
+    if(rc < 0)
+    {
+        errno = EIO;
+        return NULL;
+    }
 
     //creo il file,se esiste gia' verra' sovrascritto
     FILE *file = fopen(path_file,"w");
@@ -161,25 +177,49 @@ static unsigned int generate_id_message(utente_t *utente,utenti_registrati_t *ut
     return id;
 }
 
-static void write_on_file(FILE *file,message_t *msg)
+static int write_on_file(FILE *file,message_t *msg)
 {
+    int rc;
     char type[MSG_TYPE_SPACE]; //per memorizzare in una stringa il tipo del messaggio
     char size_buf[MSG_SIZE_SPACE]; //per memorizzare in una stringa la size del messaggio
 
     //scrivo il tipo del messaggio
     if(msg->hdr.op == TXT_MESSAGE)
-        snprintf(type,MSG_TYPE_SPACE,"Text");
+        rc = snprintf(type,MSG_TYPE_SPACE,"Text");
     else
-        snprintf(type,MSG_TYPE_SPACE,"File");
+        rc = snprintf(type,MSG_TYPE_SPACE,"File");
+
+    //controllo errore scrittura
+    if(rc < 0)
+    {
+        errno = EIO;
+        return -1;
+    }
 
     //scrivo la size del messaggio
-    snprintf(size_buf,MSG_SIZE_SPACE,"%d",msg->data.hdr.len);
+    rc = snprintf(size_buf,MSG_SIZE_SPACE,"%d",msg->data.hdr.len);
+
+    //controllo errore scrittura
+    if(rc < 0)
+    {
+        errno = EIO;
+        return -1;
+    }
 
     //scrivo sul file
-    fprintf(file,"%s\n%s\n%s\n%s\n",msg->hdr.sender,type,size_buf,msg->data.buf);
+    rc = fprintf(file,"%s\n%s\n%s\n%s\n",msg->hdr.sender,type,size_buf,msg->data.buf);
+
+    //controllo errore scrittura
+    if(rc < 0)
+    {
+        errno = EIO;
+        return -1;
+    }
+
+    return 0;
 }
 
-static int send_text_message(utente_t *receiver,message_t *text_message,utenti_registrati_t *utenti)
+static int send_message(utente_t *receiver,message_t *text_message,utenti_registrati_t *utenti)
 {
     int rc;
 
@@ -206,7 +246,9 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
             return -1;
         }
 
-        ++(utenti->stat->ndelivered);
+        //se il tipo di messaggio e' testuale allora bisogna incrementare ndelivered
+        if(text_message->hdr.op == TXT_MESSAGE)
+            ++(utenti->stat->ndelivered);
 
         //rilascio lock
         pthread_mutex_unlock(utenti->mtx_stat);
@@ -224,11 +266,17 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
         FILE *file_msg = create_message_file(id,text_message,receiver->personal_dir);
 
         //errore creazione file
-        if(file_msg == NULL)
-            return -1;
+        USER_ERR_HANDLER(file_msg,NULL,-1);
 
         //scrivo il messaggio sul file
-        write_on_file(file_msg,text_message);
+        rc = write_on_file(file_msg,text_message);
+
+        //errore scrittura sul file
+        if(rc == -1)
+        {
+            fclose(file_msg);
+            return -1;
+        }
 
         fclose(file_msg);
 
@@ -242,7 +290,9 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
             return -1;
         }
 
-        ++(utenti->stat->nnotdelivered);
+        //se il tipo di messaggio e' testuale allora bisogna decremetare nnotdelivered
+        if(text_message->hdr.op == TXT_MESSAGE)
+            ++(utenti->stat->nnotdelivered);
 
         //rilascio lock
         pthread_mutex_unlock(utenti->mtx_stat);
@@ -251,8 +301,73 @@ static int send_text_message(utente_t *receiver,message_t *text_message,utenti_r
     return 0;
 }
 
+//1 messaggio troppo grande, -1 errore, 0 ok
+static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
+{
+    int rc;
+    message_data_t file_data;
+    FILE *file;
+    char pathfile[UNIX_PATH_MAX];
+
+    rc = readData(fd,&file_data);
+
+    //errore lettura data file
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    //controllo dimensione messaggio
+    if(rc > utenti->max_file_size)
+        return 1;
+
+    //path del file
+    rc = snprintf(pathfile,UNIX_PATH_MAX,"%s/%s",utenti->media_dir,filename);
+
+    //errore snpritnf
+    if(rc < 0)
+    {
+        errno = EIO;
+        return -1;
+    }
+
+    //creo il file
+    file = fopen(pathfile,"w");
+
+    //errore creazione file
+    USER_ERR_HANDLER(file,NULL,-1);
+
+    //scrivo i dati sul file
+    rc = fprintf(file,"%s",file_data.buf);
+
+    //errore scrittura
+    if(rc < 0)
+    {
+        fclose(file);
+        errno = EIO;
+        return -1;
+    }
+
+    //incremento numeri di file non ancora consegnati. Verrano marcati solo con una GETFILE_OP
+    rc = pthread_mutex_lock(utenti->mtx_stat);
+
+    //errore lock
+    if(rc)
+    {
+        fclose(file);
+        errno = rc;
+        return -1;
+    }
+
+    ++(utenti->stat->nfilenotdelivered);
+
+    pthread_mutex_unlock(utenti->mtx_stat);
+
+    //chiudo il file e termino
+    fclose(file);
+
+    return 0;
+}
+
 //, -1 errore,,0 ok
-int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
+int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t size_msg,messaggio_id_t type,utenti_registrati_t *utenti)
 {
     int rc;
 
@@ -272,10 +387,10 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
             return -1;
         }
     }
-    //controllo dimensione messaggio
+    //controllo dimensione messaggio,sia esso un file o un testuale
     else if(size_msg > utenti->max_msg_size)
     {
-        //invio errore di messaggio troppo grande
+        //invio errore di messaggio testuale troppo grande
         rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
     }
     //altrimenti sender valido e messaggio valido
@@ -303,10 +418,18 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
             //preparo messaggio
             message_t txt_message;
 
-            setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
+            //in base al tipo di messaggio setto l'header
+            if(type == TEXT_ID)
+            {
+                setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
+            }
+            else{
+                setHeader(&txt_message.hdr,FILE_MESSAGE,sender->nickname);
+            }
+
             setData(&txt_message.data,receiver->nickname,msg,size_msg);
 
-            rc = send_text_message(receiver,&txt_message,utenti);
+            rc = send_message(receiver,&txt_message,utenti);
 
             //rilascio lock receiver
             pthread_mutex_unlock(&receiver->mtx);
@@ -318,6 +441,32 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
                 pthread_mutex_unlock(&sender->mtx);
 
                 return -1;
+            }
+
+            //se si tratta di un file,devo fare anche l'upload sulla directory del server
+            if(type == FILE_ID)
+            {
+                rc = uploadFile(sender->fd,msg,utenti);
+
+                //file troppo grande
+                if(rc == 1)
+                {
+                    //invio messaggio errore file size troppo grande
+                    rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+
+                    pthread_mutex_unlock(&sender->mtx);
+
+                    //errore invio  messaggio
+                    USER_ERR_HANDLER(rc,-1,-1);
+
+                    return 0;
+
+                }
+                //errrore nell'uploadFile
+                else{
+                    pthread_mutex_unlock(&sender->mtx);
+                    return -1;
+                }
             }
 
             //se non ci sono stati errori mando risposta al sender di OP_OK
@@ -335,7 +484,8 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
     return 0;
 }
 
-int inviaMessaggioUtenti(char *sender_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
+//solo testuali
+int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
 {
     int rc;
     int sender_pos;
@@ -389,7 +539,7 @@ int inviaMessaggioUtenti(char *sender_name,char *msg,size_t size_msg,utenti_regi
             //se e' un utente registrato,gli mando il messaggio
             if(receiver->isInit)
             {
-                rc = send_text_message(receiver,&txt_message,utenti);
+                rc = send_message(receiver,&txt_message,utenti);
             }
 
             pthread_mutex_unlock(&receiver->mtx);

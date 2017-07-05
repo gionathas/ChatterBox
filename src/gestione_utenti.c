@@ -224,7 +224,6 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
     //creo la directory del server,se non e' gia' presente
     if (stat(dirpath, &st) == -1)
     {
-        //risetto errno a 0,perche' la directory non deve esistere per funzionare
         errno = 0;
         rc = mkdir(dirpath, 0777);
 

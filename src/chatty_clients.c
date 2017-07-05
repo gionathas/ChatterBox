@@ -161,7 +161,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         case POSTTXT_OP:
 
-            rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,utenti);
+            rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,TEXT_ID,utenti);
 
             //in caso di errore
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
@@ -170,7 +170,16 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         case POSTTXTALL_OP:
 
-            rc = inviaMessaggioUtenti(sender_name,message->data.buf,message->data.hdr.len,utenti);
+            rc = inviaMessaggioUtentiRegistrati(sender_name,message->data.buf,message->data.hdr.len,utenti);
+
+            //in caso di errore
+            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+
+            break;
+
+        case POSTFILE_OP:
+
+            rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,FILE_ID,utenti);
 
             //in caso di errore
             CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
