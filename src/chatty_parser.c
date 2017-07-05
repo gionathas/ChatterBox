@@ -94,7 +94,8 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         //errore nel controllo del valore
         PARSER_ERR_HANDLER(check,-1,-1);
 
-        config->max_msg_size = check;
+        //numero di byte
+        config->max_msg_size = check * sizeof(char);
     }
     else if(strcmp(sx_field,"MaxFileSize") == 0)
     {
@@ -103,7 +104,10 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         //errore nel controllo del valore
         PARSER_ERR_HANDLER(check,-1,-1);
 
-        config->max_file_size = check;
+        size_t kb = 1024 * sizeof(char);
+
+        //trasformo in kilobyte
+        config->max_file_size = check * kb;
     }
     else if(strcmp(sx_field,"MaxHistMsgs") == 0)
     {
