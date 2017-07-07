@@ -132,7 +132,7 @@ int readData(long fd, message_data_t *data)
 
     //alloco spazio per il buffer del messaggio
     size_t len = data->hdr.len * sizeof(char);
-    data->buf = malloc(1 + len);
+    data->buf = malloc(len);
 
     //allocazione andata male
     if(data->buf == NULL)

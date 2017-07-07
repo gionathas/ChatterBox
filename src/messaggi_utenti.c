@@ -3,6 +3,11 @@
 #include<stdlib.h>
 #include<string.h>
 #include<errno.h>
+#include<sys/types.h>
+#include<dirent.h>
+#include<sys/types.h>
+#include<sys/stat.h>
+#include<unistd.h>
 #include"utenti.h"
 #include"config.h"
 #include"message.h"
@@ -343,7 +348,7 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
         return -1;
     }
 
-    fwrite(file_data.buf,1,file_data.hdr.len,file);
+    rc = fwrite(file_data.buf,1,file_data.hdr.len,file);
 
 
     //libero memoria dal buffer
@@ -579,4 +584,177 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
     USER_ERR_HANDLER(rc,-1,-1);
 
     return 0;
+}
+
+static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
+{
+    int rc;
+    FILE *searched_file = NULL;
+
+    //apro directory
+    DIR *dir = opendir(dir_path);
+
+    //errore apertura directory
+    USER_ERR_HANDLER(dir,NULL,NULL);
+
+    struct dirent *p;
+
+    int find = 0;
+    //inizio a scorrere i file dentro la directory
+    while((p = readdir(dir)) != NULL && !find)
+    {
+         struct stat buf;
+
+
+         //TODO correggere stat,gli va passato il path completo del file
+         //prendo il nome del file corrente che sto analizzando
+         rc =  stat(p->d_name,&buf);
+
+         //errore stat
+         if(rc == -1)
+         {
+             closedir(dir);
+             return NULL;
+         }
+
+         //analizzo il tipo del file,se non e' un file regolare vado avanti
+         if(S_ISREG(buf.st_mode))
+         {
+             //se ho trovato il file che cercavo
+             if(strcmp(p->d_name,filename) == 0)
+             {
+                 *file_size = buf.st_size;
+                find = 1;
+             }
+         }
+    }
+
+    //errore readdir
+    if(errno != 0)
+    {
+        closedir(dir);
+        return NULL;
+    }
+
+    //apro il file se l'ho trovato,in modalita binaria
+    if(find)
+        searched_file = fopen(p->d_name,"rb");
+
+    closedir(dir);
+
+    return searched_file;
+}
+
+
+int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
+{
+    int rc;
+    FILE *file_request;
+    size_t file_size = 0;
+
+    //controllo sender sia registrato ed online
+    utente_t *sender = checkSender(sender_name,utenti,NULL);
+
+    if(sender == NULL)
+    {
+        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+        if(errno == EPERM || errno == ENETDOWN || errno == 0)
+        {
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+        }
+        //errore checkSender
+        else{
+            return -1;
+        }
+    }
+    //cerco il file ricercato dal sender e glielo invio se esiste
+    else
+    {
+        //cerco il file nella directory del server
+        file_request = search_file(filename,utenti->media_dir,&file_size);
+
+        if(file_request == NULL)
+        {
+            //errore nella ricerca del file
+            if(errno != 0)
+            {
+                //rilascio lock sul sender
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            //file non esistente
+            else
+                rc = send_fail_message(sender->fd,OP_NO_SUCH_FILE,utenti);
+        }
+        //file trovato,lo leggo e invio la risposta al client
+        else{
+
+            //preparo messaggio di risposta
+            message_t response;
+
+            //qui la composizione e l'invio del messaggio e' fatto esplicitamente
+            size_t byte_read = 0;
+
+            //leggo la data del file e lo salvo nel buffer del messaggio di risposta
+            byte_read = fread(response.data.buf,file_size,1,file_request);
+
+            //errore read nel file
+            if(byte_read != file_size)
+            {
+                fclose(file_request);
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            fclose(file_request);
+
+            //preparo messaggio da inviare con OP_OK
+            response.data.hdr.len = file_size;
+            strncpy(response.data.hdr.receiver,"",MAX_NAME_LENGTH);
+            setHeader(&response.hdr,OP_OK,"");
+
+            //invio messaggio
+            rc = sendHeader(sender->fd,&response.hdr);
+
+            //errore sendHeader
+            if(rc == -1)
+            {
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            rc = sendData(sender->fd,&response.data);
+
+            //errore sendData
+            if(rc == -1)
+            {
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            //incremento numero di file spediti dal server
+            rc = pthread_mutex_lock(utenti->mtx_stat);
+
+            if(rc)
+            {
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            ++(utenti->stat->nfiledelivered);
+
+            pthread_mutex_unlock(utenti->mtx_stat);
+
+        }
+    }
+
+    //rilascio lock del sender
+    pthread_mutex_unlock(&sender->mtx);
+
+    //controllo esito invio risposta
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    return 0;
+
 }
