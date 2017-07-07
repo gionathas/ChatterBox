@@ -316,7 +316,11 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
 
     //controllo dimensione messaggio
     if(rc > utenti->max_file_size)
+    {
+        free(file_data.buf);
         return 1;
+    }
+
 
     //path del file
     rc = snprintf(pathfile,UNIX_PATH_MAX,"%s/%s",utenti->media_dir,filename);
@@ -324,6 +328,7 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
     //errore snpritnf
     if(rc < 0)
     {
+        free(file_data.buf);
         errno = EIO;
         return -1;
     }
@@ -332,10 +337,17 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
     file = fopen(pathfile,"w");
 
     //errore creazione file
-    USER_ERR_HANDLER(file,NULL,-1);
+    if(file == NULL)
+    {
+        free(file_data.buf);
+        return -1;
+    }
 
-    //scrivo i dati sul file
-    rc = fprintf(file,"%s",file_data.buf);
+    fwrite(file_data.buf,1,file_data.hdr.len,file);
+
+
+    //libero memoria dal buffer
+    free(file_data.buf);
 
     //errore scrittura
     if(rc < 0)
@@ -463,7 +475,8 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
 
                 }
                 //errrore nell'uploadFile
-                else{
+                if(rc == -1)
+                {
                     pthread_mutex_unlock(&sender->mtx);
                     return -1;
                 }
