@@ -589,7 +589,15 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
 static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
 {
     int rc;
+    char *buf;
+    size_t buf_len;
+    size_t dir_path_len = strlen(dir_path);
     FILE *searched_file = NULL;
+    int i = 0;
+
+    //elimino eventuale ./
+    while(filename[i] == '.' || filename[i] == '/')
+        ++filename;
 
     //apro directory
     DIR *dir = opendir(dir_path);
@@ -603,37 +611,44 @@ static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
     //inizio a scorrere i file dentro la directory
     while((p = readdir(dir)) != NULL && !find)
     {
-         struct stat buf;
+         struct stat info;
 
+         //inizializzo spazio per il buffer che conterra' il path dell'elemento che analizzo
+         buf_len = dir_path_len + strlen(p->d_name) + 2;
+         buf = malloc(buf_len);
 
-         //TODO correggere stat,gli va passato il path completo del file
-         //prendo il nome del file corrente che sto analizzando
-         rc =  stat(p->d_name,&buf);
+         if(!buf)
+         {
+             break;
+         }
+
+         //scrivo dentro al buffer il path dell'elemento che sto per analizzare
+         snprintf(buf,buf_len, "%s/%s",dir_path, p->d_name);
+
+         //analizzo il file corrente
+         rc =  stat(buf,&info);
 
          //errore stat
          if(rc == -1)
          {
-             closedir(dir);
-             return NULL;
+             free(buf);
+             break;
          }
 
          //analizzo il tipo del file,se non e' un file regolare vado avanti
-         if(S_ISREG(buf.st_mode))
+         if(S_ISREG(info.st_mode))
          {
              //se ho trovato il file che cercavo
              if(strcmp(p->d_name,filename) == 0)
              {
-                 *file_size = buf.st_size;
-                find = 1;
+                 *file_size = info.st_size;
+                 find = 1;
+                 free(buf);
+                break;
              }
          }
-    }
 
-    //errore readdir
-    if(errno != 0)
-    {
-        closedir(dir);
-        return NULL;
+         free(buf);
     }
 
     //apro il file se l'ho trovato,in modalita binaria
@@ -651,6 +666,7 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
     int rc;
     FILE *file_request;
     size_t file_size = 0;
+    char *tmp_file_data = NULL;
 
     //controllo sender sia registrato ed online
     utente_t *sender = checkSender(sender_name,utenti,NULL);
@@ -689,15 +705,14 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
         }
         //file trovato,lo leggo e invio la risposta al client
         else{
-
-            //preparo messaggio di risposta
-            message_t response;
-
+            
             //qui la composizione e l'invio del messaggio e' fatto esplicitamente
             size_t byte_read = 0;
 
+            tmp_file_data = malloc(file_size);
+
             //leggo la data del file e lo salvo nel buffer del messaggio di risposta
-            byte_read = fread(response.data.buf,file_size,1,file_request);
+            byte_read = fread(tmp_file_data,1,file_size,file_request);
 
             //errore read nel file
             if(byte_read != file_size)
@@ -709,29 +724,7 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
 
             fclose(file_request);
 
-            //preparo messaggio da inviare con OP_OK
-            response.data.hdr.len = file_size;
-            strncpy(response.data.hdr.receiver,"",MAX_NAME_LENGTH);
-            setHeader(&response.hdr,OP_OK,"");
-
-            //invio messaggio
-            rc = sendHeader(sender->fd,&response.hdr);
-
-            //errore sendHeader
-            if(rc == -1)
-            {
-                pthread_mutex_unlock(&sender->mtx);
-                return -1;
-            }
-
-            rc = sendData(sender->fd,&response.data);
-
-            //errore sendData
-            if(rc == -1)
-            {
-                pthread_mutex_unlock(&sender->mtx);
-                return -1;
-            }
+            rc = send_ok_message(sender->fd,tmp_file_data,file_size);
 
             //incremento numero di file spediti dal server
             rc = pthread_mutex_lock(utenti->mtx_stat);
