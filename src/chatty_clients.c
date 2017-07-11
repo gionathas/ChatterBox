@@ -195,6 +195,16 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
             break;
 
+        case GETPREVMSGS_OP:
+
+            rc = inviaMessaggiRemoti(sender_name,utenti);
+
+            //in caso di errore
+            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+
+            break;
+
+
         default:
 
             rc = send_fail_message(fd,OP_FAIL,utenti);

@@ -17,5 +17,6 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
 utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti,int *pos);
 int sendUserOnline(int fd,utenti_registrati_t *utenti);
 int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti);
+int inviaMessaggiRemoti(char *sender_name,utenti_registrati_t *utenti);
 
 #endif /*MESS_UTENTI_H_ */

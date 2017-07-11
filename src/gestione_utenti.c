@@ -504,7 +504,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     strncpy(Utenti->elenco[hashIndex].nickname,name,MAX_NAME_LENGTH);
     Utenti->elenco[hashIndex].isInit = 1;
     Utenti->elenco[hashIndex].isOnline = 1;
-    Utenti->elenco[hashIndex].n_element_in_dir = 0;
+    Utenti->elenco[hashIndex].n_remote_message = 0;
 
     /*
        Per inserire l'fd relativo a questo utente devo assicurarmi che nessun altro utente

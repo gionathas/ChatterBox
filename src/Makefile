@@ -33,7 +33,7 @@ queue:
 server_chatty.out:chatty.o
 	$(CC) $(CFLAGS) -I $(INCLUDES) $< -o $@ -L $(LIBS_PATH) $(LIBS)
 
-client_chatty.out:client.o
+client:client.o
 	$(CC) $(CFLAGS) -I $(INCLUDES) $< -o $@ -L $(LIBS_PATH) $(LIBS)
 
 #generazione eseguibili

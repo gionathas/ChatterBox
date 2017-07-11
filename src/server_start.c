@@ -690,6 +690,8 @@ static void* listener(void *arg)
 
          }
 
+         //TODO bloccare i segnali e sbloccarli nella select per eliminare la usleep e l'if successivo
+
          //preparo maschera per select
          read_set = active_set;
 
@@ -698,7 +700,7 @@ static void* listener(void *arg)
          #endif
 
          //prima di bloccarmi sulla select,controllo se sono arrivati segnali
-         usleep(10000);
+         usleep(50000);
          if(!run || updateSet || sigusr)
              continue;
 

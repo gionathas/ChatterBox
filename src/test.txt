@@ -1,0 +1,8 @@
+./client -l "/tmp/chatty_socket" -c pippo
+	./client -l "/tmp/chatty_socket" -c pluto
+	./client -l "/tmp/chatty_socket" -c minni
+	./client -l "/tmp/chatty_socket" -k pippo -S "Ciao pluto":pluto -S "come stai?":pluto
+	./client -l "/tmp/chatty_socket" -k pluto -p -S "Ciao pippo":pippo -S "bene e tu?":pippo -S "Ciao minni come stai?":minni
+	./client -l "/tmp/chatty_socket" -k pippo -p
+	./client -l "/tmp/chatty_socket" -k pluto -p
+	./client -l "/tmp/chatty_socket" -k minni -p

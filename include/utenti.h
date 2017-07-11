@@ -23,7 +23,7 @@
  * @note l'fd vale solo se l'utente e' online
  * @var mtx mutex per sincronizzazioni per accesso dati dell'utente
  * @var personal_dir path della directory personale dell'utente
- * @var n_element_in_dir numero di elementi che si trovano nella mia cartella personale
+ * @var n_remote_message numero di elementi che si trovano nella mia cartella personale
  */
 typedef struct{
     char nickname[MAX_NAME_LENGTH + 1];
@@ -32,7 +32,7 @@ typedef struct{
     unsigned int fd; //0 quando e' offline
     pthread_mutex_t mtx;
     char personal_dir[MAX_CLIENT_DIR_LENGHT];
-    unsigned int n_element_in_dir;
+    unsigned int n_remote_message;
 }utente_t;
 
 /**

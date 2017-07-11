@@ -18,10 +18,7 @@
 #define MSG_TYPE_SPACE 15
 /* Numero di byte che servono per memorizzare in una stringa la size di un messaggio, in un file */
 #define MSG_SIZE_SPACE 6
-/* size del buffer iniziale per la stringa degli utenti online */
-#define INITAL_BUFFER 1000
-/* byte per incrementare la size del buffer della stringa degli utenti online */
-#define BUFFER_INCREMENT 500
+
 
 //per questo tipo di messaggio sender e receiver non ci interessano
 int send_ok_message(int fd,char *buf,unsigned int len)
@@ -112,7 +109,6 @@ int sendUserOnline(int fd,utenti_registrati_t *utenti)
 {
     char user_online[MAX_NAME_LENGTH * MAX_USERS]; //stringa dove salvare i nick degli utenti online
     size_t size = MAX_NAME_LENGTH * MAX_USERS;
-    //int  count = -(BUFFER_INCREMENT); //byte in aggiunta alla stringa degli utenti online,si incrementa ogni volta di 100 byte
     int new_size = 0; //nuova size della stringa dopo aver scritto i nick al suo interno
     int rc;
 
@@ -167,16 +163,16 @@ static unsigned int generate_id_message(utente_t *utente,utenti_registrati_t *ut
     unsigned int id;
 
     //se la directory receiver piena
-    if(utente->n_element_in_dir == utenti->max_hist_msgs)
+    if(utente->n_remote_message == utenti->max_hist_msgs)
     {
         //dato che tutti i messaggi hanno la stessa importanza,ne scegliamo una a caso da sovrascrivere
         srand(time(NULL));
         id = (rand() % utenti->max_hist_msgs) + 1;
     }
     else{
-        id = utente->n_element_in_dir + 1;
+        id = utente->n_remote_message + 1;
         //incremento numero di messaggi nella directory del receiver
-        ++(utente->n_element_in_dir);
+        ++(utente->n_remote_message);
     }
 
     return id;
@@ -705,7 +701,7 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
         }
         //file trovato,lo leggo e invio la risposta al client
         else{
-            
+
             //qui la composizione e l'invio del messaggio e' fatto esplicitamente
             size_t byte_read = 0;
 
@@ -750,4 +746,251 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
 
     return 0;
 
+}
+
+static void removenl(char *string)
+{
+    char *tmp;
+
+    if((tmp = strchr(string,'\n')) != NULL)
+        *tmp = '\0';
+}
+
+//NOTA i messaggi vengono mandati dal piu recente al meno recente
+static int sendDataRemoteFile(utente_t *utente,utenti_registrati_t *utenti)
+{
+    char *file_path;
+    size_t file_path_size;
+    int rc;
+
+    //apro la directory dell'utente
+    DIR *dir = opendir(utente->personal_dir);
+
+    USER_ERR_HANDLER(dir,NULL,-1);
+
+    //lunghezza path della directory del server
+    size_t dir_path_len = strlen(utente->personal_dir);
+
+    struct dirent *file_iterator; // per iterare tra i file
+
+    //fin quando non ci sono piu file
+    while((file_iterator = readdir(dir)) != NULL)
+    {
+        //evito le cartelle . e ..
+        if(strcmp(file_iterator->d_name,".") == 0 || strcmp(file_iterator->d_name,"..") == 0 )
+            continue;
+
+        //alloco spazio per il buffer che conterra il path del file attuale che stiamo analizzando
+        file_path_size = dir_path_len + strlen(file_iterator->d_name) + 2;
+        file_path = malloc(file_path_size);
+
+        if(file_path == NULL)
+            break;
+
+        rc = snprintf(file_path,file_path_size,"%s/%s",utente->personal_dir,file_iterator->d_name);
+
+        if(rc < 0)
+        {
+            free(file_path);
+            break;
+        }
+
+        //apro il file attuale in lettura
+        FILE *file = fopen(file_path,"r");
+
+        //errore apertura
+        if(!file)
+        {
+            free(file_path);
+            return -1;
+        }
+
+        //alloco un buffer per contenere la data del messaggio da leggere
+        char *buf = malloc(utenti->max_msg_size);
+
+        if(buf == NULL)
+        {
+            free(file_path);
+            fclose(file);
+            break;
+        }
+
+        //variabili per leggere il messaggio
+        message_t remoteMessage;
+        op_t op = 0;
+        char *sender,*data;
+        size_t size_data = 0;
+
+        //analizzo il file e preparo messaggio di risposta
+        //il file si compone di 4 righe ognuna contiene un info per il messaggio
+        int n_line = 4,curr_line = 0;
+        while(fgets(buf,utenti->max_msg_size,file) !=  NULL && curr_line < n_line )
+        {
+            //rimuoviamo il newline dalla riga appena letta
+            removenl(buf);
+
+            //leggiamo il sender
+            if(curr_line == 0)
+            {
+                sender = malloc(MAX_NAME_LENGTH + 1);
+
+                if(!sender)
+                    break;
+
+                strncpy(sender,buf,MAX_NAME_LENGTH);
+            }
+            //leggiamo il tipo di messaggio
+            else if(curr_line == 1)
+            {
+                if(strcmp(buf,"Text") == 0)
+                    op = TXT_MESSAGE;
+                else
+                    op = FILE_MESSAGE;
+            }
+            //leggiamo size messaggio
+            else if(curr_line == 2)
+            {
+                size_data = atoi(buf);
+            }
+            //leggiamo data del messaggio
+            else{
+                data = malloc(size_data);
+
+                if(!data)
+                    break;
+
+                strncpy(data,buf,size_data);
+            }
+
+            curr_line++;
+        }
+
+        free(buf);
+        fclose(file);
+
+        //errore nella lettura dei campi del file
+        if(errno != 0)
+        {
+            free(file_path);
+            break;
+        }
+
+        //preparo il messaggio letto in remoto per il client
+        setHeader(&remoteMessage.hdr,op,sender);
+        setData(&remoteMessage.data,"",data,size_data);
+
+        rc = sendHeader(utente->fd,&remoteMessage.hdr);
+
+        //errore invio header
+        if(rc == -1)
+        {
+            free(file_path);
+            break;
+        }
+
+        rc = sendData(utente->fd,&remoteMessage.data);
+
+        //errore invio data
+        if(rc == -1)
+        {
+            free(file_path);
+            break;
+        }
+
+        //elimino il file in quando ora non serve piu'
+        unlink(file_path);
+
+        free(file_path);
+
+        //decremento numero messaggi in remoto per l'utente attulae
+        --utente->n_remote_message;
+
+        //Aggiorno statistiche del server
+        rc = pthread_mutex_lock(utenti->mtx_stat);
+
+        //errore lock
+        if(rc)
+        {
+            errno = rc;
+            break;
+        }
+
+        if(op == FILE_MESSAGE)
+        {
+            --utenti->stat->nfilenotdelivered;
+            ++utenti->stat->nfiledelivered;
+        }
+        //si tratta di un messaggio testuale
+        else{
+            --utenti->stat->nfilenotdelivered;
+            ++utenti->stat->ndelivered;
+        }
+
+        //rilascio lock sulle statistiche
+        pthread_mutex_unlock(utenti->mtx_stat);
+
+    }
+
+    //chiudo cartella dell'utente
+    closedir(dir);
+
+    //se si sono riscontrati errori
+    if(errno != 0)
+        return -1;
+    else
+        return 0;
+}
+
+//per far funzionare una chiamata di funzione in inviaMessaggiRemoti
+static int _send_ok_message(int fd,size_t *buf,unsigned int len)
+{
+    return send_ok_message(fd,(char*)buf,len);
+}
+
+int inviaMessaggiRemoti(char *sender_name,utenti_registrati_t *utenti)
+{
+    int rc;
+    //controllo sender sia registrato ed online
+    utente_t *sender = checkSender(sender_name,utenti,NULL);
+
+    if(sender == NULL)
+    {
+        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+        if(errno == EPERM || errno == ENETDOWN || errno == 0)
+        {
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+        }
+        //errore checkSender
+        else{
+            return -1;
+        }
+    }
+    //cerco il file ricercato dal sender e glielo invio se esiste
+    else
+    {
+        //recupero il numero di messaggi da leggere
+        size_t n_msgs = sender->n_remote_message;
+
+        /* Pezzo particolare,abbiamo passato il puntatore alla variabile di n_msgs per rispettare il client */
+
+        //mando un OP_OK con il numero di messaggi da leggere
+        rc = _send_ok_message(sender->fd,&n_msgs,sizeof(n_msgs));
+
+        //errore invio messaggio
+        if(rc == -1)
+        {
+            pthread_mutex_unlock(&sender->mtx);
+            return -1;
+        }
+
+        rc = sendDataRemoteFile(sender,utenti);
+
+        //rilascio lock sul sender
+        pthread_mutex_unlock(&sender->mtx);
+    }
+
+    //controllo esito delle ultime operazionio
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    return 0;
 }
