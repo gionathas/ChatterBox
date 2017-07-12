@@ -6,3 +6,4 @@
 	./client -l "/tmp/chatty_socket" -k pippo -p
 	./client -l "/tmp/chatty_socket" -k pluto -p
 	./client -l "/tmp/chatty_socket" -k minni -p
+	clear

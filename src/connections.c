@@ -15,8 +15,6 @@
 #include"connections.h"
 #include"config.h"
 
-#define DEBUG
-
 //1 connessione chiusa,0 ancora aperta oppure errore
 static inline int connection_closed(int read_result)
 {

@@ -656,56 +656,23 @@ static void* listener(void *arg)
      FD_SET(server->fd,&active_set);
      max_fd = server->fd;
 
+     //blocco tutti i segnali per riceverli nella select
+     sigset_t curr_mask,signal_handler_mask;
+     sigfillset(&curr_mask);
+     pthread_sigmask(SIG_SETMASK,&curr_mask,&signal_handler_mask);
+
      //qui parte il ciclo di vita del server
      while(run)
      {
-         //Controllo i flag dei segnali
-
-         //controllo la coda dei descrittori da aggiornare
-         if(updateSet)
-         {
-             err = update_active_set(&active_set,&actual_client,&max_fd);
-
-             //errore update del active set
-             if(err == -1)
-             {
-                 curr_error = errno;
-                 goto lst_error4;
-             }
-         }
-
-         //se devo eseguire la funzione definita con sigusr
-         if(sigusr)
-         {
-             sigusr = 0; //risetto a 0 il segnale di sigusr
-
-             err = threadpool_add_task(server->threadpool,signal_usr_handler,(void*)arg_suh);
-
-             //errore add task
-             if(err == -1)
-             {
-                 curr_error = errno;
-                 goto lst_error4;
-             }
-
-         }
-
-         //TODO bloccare i segnali e sbloccarli nella select per eliminare la usleep e l'if successivo
-
-         //preparo maschera per select
+        //preparo maschera per select
          read_set = active_set;
 
          #ifdef DEBUG
              printf("Listener: Select in attesa || client connessi : %d\n",actual_client);
          #endif
 
-         //prima di bloccarmi sulla select,controllo se sono arrivati segnali
-         usleep(50000);
-         if(!run || updateSet || sigusr)
-             continue;
-
          //mi blocco fin quando non posso fare una read da un client,oppure arriva un nuovo client,oppure arriva un segnale
-         int ds = select(max_fd + 1,&read_set,NULL,NULL,NULL);
+         int ds = pselect(max_fd + 1,&read_set,NULL,NULL,NULL,&signal_handler_mask);
 
          //ho ricevuto un segnale oppure e' fallita la select
          if(ds == -1)
@@ -713,7 +680,38 @@ static void* listener(void *arg)
              //arrivato segnale
              if(errno == EINTR)
              {
-                 //torno ad inzio funzione per gestire i segnali.
+                 //Controllo i flag dei segnali
+
+                 //controllo la coda dei descrittori da aggiornare
+                 if(updateSet)
+                 {
+                     err = update_active_set(&active_set,&actual_client,&max_fd);
+
+                     //errore update del active set
+                     if(err == -1)
+                     {
+                         curr_error = errno;
+                         goto lst_error4;
+                     }
+                 }
+
+                 //se devo eseguire la funzione definita con sigusr
+                 if(sigusr)
+                 {
+                     sigusr = 0; //risetto a 0 il segnale di sigusr
+
+                     err = threadpool_add_task(server->threadpool,signal_usr_handler,(void*)arg_suh);
+
+                     //errore add task
+                     if(err == -1)
+                     {
+                         curr_error = errno;
+                         goto lst_error4;
+                     }
+
+                 }
+
+                 //ritorno nella select
                  continue;
              }
 
