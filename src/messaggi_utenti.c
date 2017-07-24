@@ -1,3 +1,10 @@
+/**
+ * @file  messaggi_utenti.c
+ * @brief Implementazione modulo per lo scambio di messaggi tra utenti di chatty.
+ * @author Gionatha Sturba 531274
+ * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+ * originale dell'autore
+ */
 #include<pthread.h>
 #include<stdio.h>
 #include<stdlib.h>
@@ -14,121 +21,27 @@
 #include"connections.h"
 #include"messaggi_utenti.h"
 
-/* Numero di byte che servono per memorizzare in una stringa il tipo di un messaggio, in un file */
-#define MSG_TYPE_SPACE 15
-/* Numero di byte che servono per memorizzare in una stringa la size di un messaggio, in un file */
-#define MSG_SIZE_SPACE 6
+/*FUNZIONI DI SUPPORTO*/
 
-
-//per questo tipo di messaggio sender e receiver non ci interessano
-int send_ok_message(int fd,char *buf,unsigned int len)
+//per far funzionare una chiamata di funzione in inviaMessaggiRemoti
+//@see send_ok_message
+static int _send_ok_message(int fd,size_t *buf,unsigned int len)
 {
-    message_t response;
-    int rc;
-
-    //setto header, sender e receiver non ci interessano
-    setHeader(&response.hdr,OP_OK,"");
-
-    //mando header
-    rc = sendHeader(fd,&response.hdr);
-
-    //errore sendHeader
-    USER_ERR_HANDLER(rc,-1,-1);
-
-    //se il buffer non e' vuoto,allora inviamo anche il la data del messaggio
-    if(len != 0 || strcmp(buf,"") != 0)
-    {
-        setData(&response.data,"",buf,len);
-        //mando data
-        rc = sendData(fd,&response.data);
-
-        //errore sendData
-        USER_ERR_HANDLER(rc,-1,-1);
-    }
-
-    return rc;
+    return send_ok_message(fd,(char*)buf,len);
 }
 
-int send_fail_message(int fd,op_t op_fail,utenti_registrati_t *utenti)
-{
-    message_t err_response; //risposta di errore al client
-    int rc;
-
-    //preparo risposta con op_fail
-    setHeader(&err_response.hdr,op_fail,"");
-
-    //invio risposta,solo header perche' e' un errore
-    rc = sendHeader(fd,&err_response.hdr);
-
-    //errore invio messaggio
-    USER_ERR_HANDLER(rc,-1,-1);
-
-    //incremento il numero di messaggi di errori inviati dal server
-
-    //lock su stat
-    rc = pthread_mutex_lock(utenti->mtx_stat);
-
-    //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
-
-    //incremento contatore errori
-    ++(utenti->stat->nerrors);
-
-    //unlock stat
-    pthread_mutex_unlock(utenti->mtx_stat);
-
-    return 0;
-}
-
-utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti,int *pos)
-{
-    //controllo sender sia registrato
-    utente_t *sender = cercaUtente(sender_name,utenti,pos);
-
-    //sender non valido o non registrato o errore
-    USER_ERR_HANDLER(sender,NULL,NULL);
-
-    //controllo sender sia online
-    if(sender->isOnline == 0)
-    {
-        //rilascio lock sender
-        pthread_mutex_unlock(&sender->mtx);
-
-        errno = ENETDOWN;
-        return NULL;
-    }
-
-    return sender;
-}
-
-int sendUserOnline(int fd,utenti_registrati_t *utenti)
-{
-    char user_online[MAX_NAME_LENGTH * MAX_USERS]; //stringa dove salvare i nick degli utenti online
-    size_t size = MAX_NAME_LENGTH * MAX_USERS;
-    int new_size = 0; //nuova size della stringa dopo aver scritto i nick al suo interno
-    int rc;
-
-    rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
-
-    //se sono fallito per altro
-    USER_ERR_HANDLER(rc,-1,-1);
-
-    //mando messaggio di ok,con la stringa degli utenti online
-    rc = send_ok_message(fd,user_online,new_size);
-
-    return rc;
-
-}
-
-//ritorna file aperto per sciverci,altrimenti NULL e setta errno
-static FILE *create_message_file(int id,message_t *msg,char *dir_path)
+/**
+ * @function create_message_file
+ * @brief Crea e apre un file per la scrittura,su una directory.
+ *        Il file viene rinominato con un id.
+ * @param id id con cui rinominare il file da creare
+ * @param dir_path path della directory
+ * @return file aperto per la scrittura,altrimenti NULL e setta errno.
+ */
+static FILE *create_message_file(int id,char *dir_path)
 {
     int rc;
-    char msg_id[MAX_ID_LENGTH + 1]; //per memorizzare id sottoforma di stringa
+    char msg_id[MAX_ID_LENGTH + 1]; //per memorizzare id del msg sottoforma di stringa
 
     //trasformo l'id in stringa
     rc = snprintf(msg_id,MAX_ID_LENGTH + 1,"%d",id);
@@ -158,26 +71,53 @@ static FILE *create_message_file(int id,message_t *msg,char *dir_path)
     return file;
 }
 
-static unsigned int generate_id_message(utente_t *utente,utenti_registrati_t *utenti)
+/**
+ * @function generate_id_message
+ * @brief Genera l'id del messaggio da salvare in remoto sul server.
+ * @param receiver utente a cui arrivera' il messaggio
+ * @param utenti elenco utenti registrati
+ * @return id del messaggio.
+ */
+static unsigned int generate_id_message(utente_t *receiver,utenti_registrati_t *utenti)
 {
     unsigned int id;
 
-    //se la directory receiver piena
-    if(utente->n_remote_message == utenti->max_hist_msgs)
+    //se la directory del'utente e' piena
+    if(receiver->n_remote_message == utenti->max_hist_msgs)
     {
         //dato che tutti i messaggi hanno la stessa importanza,ne scegliamo una a caso da sovrascrivere
         srand(time(NULL));
         id = (rand() % utenti->max_hist_msgs) + 1;
     }
     else{
-        id = utente->n_remote_message + 1;
-        //incremento numero di messaggi nella directory del receiver
-        ++(utente->n_remote_message);
+        id = receiver->n_remote_message + 1;
+        //incremento numero di messaggi nella directory dell' utente
+        ++(receiver->n_remote_message);
     }
 
     return id;
 }
 
+/**
+ * @function removenl
+ * @brief Rimuove newline da una stringa
+ * @param string stringa su cui operare
+ */
+static void removenl(char *string)
+{
+    char *tmp;
+
+    if((tmp = strchr(string,'\n')) != NULL)
+        *tmp = '\0';
+}
+
+/**
+ * @function write_on_file
+ * @brief Scrive sul file il messaggio dal salvare in remoto sul server.
+ * @param file file su cui scrivere
+ * @param msg messaggio da salvare in remoto sul server.
+ * @return 0 scrittura su file andata a buon fine,altrimenti -1 e setta errno.
+ */
 static int write_on_file(FILE *file,message_t *msg)
 {
     int rc;
@@ -220,368 +160,15 @@ static int write_on_file(FILE *file,message_t *msg)
     return 0;
 }
 
-static int send_message(utente_t *receiver,message_t *text_message,utenti_registrati_t *utenti)
-{
-    int rc;
-
-    //receiver online,posso mandargli direttamente il messaggio
-    if(receiver->isOnline)
-    {
-        rc = sendHeader(receiver->fd,&text_message->hdr);
-
-        //errore invio header
-        USER_ERR_HANDLER(rc,-1,-1);
-
-        rc = sendData(receiver->fd,&text_message->data);
-
-        //errore invio data
-        USER_ERR_HANDLER(rc,-1,-1);
-
-        //nessun errore riscontrato,incremento numero di messaggi inviati
-        rc = pthread_mutex_lock(utenti->mtx_stat);
-
-        //errore lock
-        if(rc)
-        {
-            errno = rc;
-            return -1;
-        }
-
-        //se il tipo di messaggio e' testuale allora bisogna incrementare ndelivered
-        if(text_message->hdr.op == TXT_MESSAGE)
-            ++(utenti->stat->ndelivered);
-
-        //rilascio lock
-        pthread_mutex_unlock(utenti->mtx_stat);
-
-    }
-    //se non e' online,dobbiamo salvarlo nella directory personale del receiver,sottoforma di file
-    else
-    {
-        int id;//identificativo del messaggio
-
-        //creo identificatore messaggio
-        id = generate_id_message(receiver,utenti);
-
-        //creo il file messaggio da inviare
-        FILE *file_msg = create_message_file(id,text_message,receiver->personal_dir);
-
-        //errore creazione file
-        USER_ERR_HANDLER(file_msg,NULL,-1);
-
-        //scrivo il messaggio sul file
-        rc = write_on_file(file_msg,text_message);
-
-        //errore scrittura sul file
-        if(rc == -1)
-        {
-            fclose(file_msg);
-            return -1;
-        }
-
-        fclose(file_msg);
-
-        //nessun errore riscontrato,incremento numero di messaggi non ancora consegnati
-        rc = pthread_mutex_lock(utenti->mtx_stat);
-
-        //errore lock
-        if(rc)
-        {
-            errno = rc;
-            return -1;
-        }
-
-        //se il tipo di messaggio e' testuale allora bisogna decremetare nnotdelivered
-        if(text_message->hdr.op == TXT_MESSAGE)
-            ++(utenti->stat->nnotdelivered);
-
-        //rilascio lock
-        pthread_mutex_unlock(utenti->mtx_stat);
-    }
-
-    return 0;
-}
-
-//1 messaggio troppo grande, -1 errore, 0 ok
-static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
-{
-    int rc;
-    message_data_t file_data;
-    FILE *file;
-    char pathfile[UNIX_PATH_MAX];
-
-    rc = readData(fd,&file_data);
-
-    //errore lettura data file
-    USER_ERR_HANDLER(rc,-1,-1);
-
-    //controllo dimensione messaggio
-    if(rc > utenti->max_file_size)
-    {
-        free(file_data.buf);
-        return 1;
-    }
-
-
-    //path del file
-    rc = snprintf(pathfile,UNIX_PATH_MAX,"%s/%s",utenti->media_dir,filename);
-
-    //errore snpritnf
-    if(rc < 0)
-    {
-        free(file_data.buf);
-        errno = EIO;
-        return -1;
-    }
-
-    //creo il file
-    file = fopen(pathfile,"w");
-
-    //errore creazione file
-    if(file == NULL)
-    {
-        free(file_data.buf);
-        return -1;
-    }
-
-    rc = fwrite(file_data.buf,1,file_data.hdr.len,file);
-
-
-    //libero memoria dal buffer
-    free(file_data.buf);
-
-    //errore scrittura
-    if(rc < 0)
-    {
-        fclose(file);
-        errno = EIO;
-        return -1;
-    }
-
-    //incremento numeri di file non ancora consegnati. Verrano marcati solo con una GETFILE_OP
-    rc = pthread_mutex_lock(utenti->mtx_stat);
-
-    //errore lock
-    if(rc)
-    {
-        fclose(file);
-        errno = rc;
-        return -1;
-    }
-
-    ++(utenti->stat->nfilenotdelivered);
-
-    pthread_mutex_unlock(utenti->mtx_stat);
-
-    //chiudo il file e termino
-    fclose(file);
-
-    return 0;
-}
-
-//, -1 errore,,0 ok
-int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t size_msg,messaggio_id_t type,utenti_registrati_t *utenti)
-{
-    int rc;
-
-    //controllo sender sia registrato ed online
-    utente_t *sender = checkSender(sender_name,utenti,NULL);
-
-    if(sender == NULL)
-    {
-        /* se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato,
-           oppure si sta cercando di autoinviarsi un messaggio */
-        if(errno == EPERM || errno == ENETDOWN || errno == 0 || strcmp(sender_name,receiver_name) == 0)
-        {
-            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
-        }
-        //errore checkSender
-        else{
-            return -1;
-        }
-    }
-    //controllo dimensione messaggio,sia esso un file o un testuale
-    else if(size_msg > utenti->max_msg_size)
-    {
-        //invio errore di messaggio testuale troppo grande
-        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
-    }
-    //altrimenti sender valido e messaggio valido
-    else{
-
-        //controllo stato del receiver: Deve essere solo registrato
-        utente_t *receiver = cercaUtente(receiver_name,utenti,NULL);
-
-        //receiver non valido
-        if(receiver == NULL)
-        {
-            //receiver non registrato oppure nome receiver invalido
-            if(errno == 0 || errno == EPERM)
-            {
-                rc = send_fail_message(sender->fd,OP_FAIL,utenti);
-            }
-            //errore ricerca receiver
-            else{
-                return -1;
-            }
-        }
-        //receiver valido
-        else
-        {
-            //preparo messaggio
-            message_t txt_message;
-
-            //in base al tipo di messaggio setto l'header
-            if(type == TEXT_ID)
-            {
-                setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
-            }
-            else{
-                setHeader(&txt_message.hdr,FILE_MESSAGE,sender->nickname);
-            }
-
-            setData(&txt_message.data,receiver->nickname,msg,size_msg);
-
-            rc = send_message(receiver,&txt_message,utenti);
-
-            //rilascio lock receiver
-            pthread_mutex_unlock(&receiver->mtx);
-
-            //errore in send_text_message
-            if(rc == -1)
-            {
-                //rilasciare lock del sender
-                pthread_mutex_unlock(&sender->mtx);
-
-                return -1;
-            }
-
-            //se si tratta di un file,devo fare anche l'upload sulla directory del server
-            if(type == FILE_ID)
-            {
-                rc = uploadFile(sender->fd,msg,utenti);
-
-                //file troppo grande
-                if(rc == 1)
-                {
-                    //invio messaggio errore file size troppo grande
-                    rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
-
-                    pthread_mutex_unlock(&sender->mtx);
-
-                    //errore invio  messaggio
-                    USER_ERR_HANDLER(rc,-1,-1);
-
-                    return 0;
-
-                }
-                //errrore nell'uploadFile
-                if(rc == -1)
-                {
-                    pthread_mutex_unlock(&sender->mtx);
-                    return -1;
-                }
-            }
-
-            //se non ci sono stati errori mando risposta al sender di OP_OK
-            rc = send_ok_message(sender->fd,"",0);
-
-            //solo ora posso rilasciare lock del sender
-            pthread_mutex_unlock(&sender->mtx);
-
-        }
-    }
-
-    //controllo esito invio messaggio
-    USER_ERR_HANDLER(rc,-1,-1);
-
-    return 0;
-}
-
-//solo testuali
-int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
-{
-    int rc;
-    int sender_pos;
-
-    //controllo sender sia registrato ed online
-    utente_t *sender = checkSender(sender_name,utenti,&sender_pos);
-
-    if(sender == NULL)
-    {
-        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
-        if(errno == EPERM || errno == ENETDOWN || errno == 0)
-        {
-            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
-        }
-        //errore checkSender
-        else{
-            return -1;
-        }
-    }
-    //controllo dimensione messaggio
-    else if(size_msg > utenti->max_msg_size)
-    {
-        //invio errore di messaggio troppo grande
-        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
-    }
-    else
-    {
-        //preparo messaggio
-        message_t txt_message;
-
-        setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
-        setData(&txt_message.data,"",msg,size_msg);
-
-        //scorro tutti gli utenti registrati
-        for (size_t i = 0; i < MAX_USERS; i++)
-        {
-            //caso in cui analizzo il sender.Vado alla prossima iterazione.
-            if(sender_pos == i)
-                continue;
-
-            utente_t *receiver = &utenti->elenco[i];
-
-            rc = pthread_mutex_lock(&receiver->mtx);
-
-            if(rc)
-            {
-                errno = rc;
-                return -1;
-            }
-
-            //se e' un utente registrato,gli mando il messaggio
-            if(receiver->isInit)
-            {
-                rc = send_message(receiver,&txt_message,utenti);
-            }
-
-            pthread_mutex_unlock(&receiver->mtx);
-
-            //errore in send_text_message
-            if(rc == -1)
-            {
-                //rilascio lock del sender
-                pthread_mutex_unlock(&sender->mtx);
-
-                return -1;
-            }
-
-        }
-
-        //se non ci sono stati errori mando risposta al sender di OP_OK
-        rc = send_ok_message(sender->fd,"",0);
-
-        //solo ora posso rilasciare lock del sender
-        pthread_mutex_unlock(&sender->mtx);
-    }
-
-    //controllo esito del messaggio di risposta al sender
-    USER_ERR_HANDLER(rc,-1,-1);
-
-    return 0;
-}
-
+/**
+ * @function search_file
+ * @brief Cerca un file dentro un cartella, e lo restituisce aperto in lettura binaria.
+ * @param filename nome del file
+ * @param dir_path path della cartella
+ * @param file_size puntatore alla dimensione del file
+ * @return file aperto in lettura binaria e dimensione del file.Altrimenti ritorna NULL,
+ *         se il file non e' stato trovato. In caso di altri errori,errno viene settato.
+ */
 static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
 {
     int rc;
@@ -656,107 +243,189 @@ static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
     return searched_file;
 }
 
-
-int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
+/**
+ * @function uploadFile
+ * @brief Carica un file sulla directory del server.
+ * @param fd fd del client che invia il file
+ * @param filename nome del file
+ * @param utenti elenco utenti registrati
+ * @return 0 file caricato correttamente sul server. 1 file troppo grande.
+ *         altrimenti -1 e setta errno.
+ */
+static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
 {
     int rc;
-    FILE *file_request;
-    size_t file_size = 0;
-    char *tmp_file_data = NULL;
+    message_data_t file_data;
+    FILE *file;
+    char pathfile[UNIX_PATH_MAX];
 
-    //controllo sender sia registrato ed online
-    utente_t *sender = checkSender(sender_name,utenti,NULL);
+    rc = readData(fd,&file_data);
 
-    if(sender == NULL)
-    {
-        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
-        if(errno == EPERM || errno == ENETDOWN || errno == 0)
-        {
-            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
-        }
-        //errore checkSender
-        else{
-            return -1;
-        }
-    }
-    //cerco il file ricercato dal sender e glielo invio se esiste
-    else
-    {
-        //cerco il file nella directory del server
-        file_request = search_file(filename,utenti->media_dir,&file_size);
-
-        if(file_request == NULL)
-        {
-            //errore nella ricerca del file
-            if(errno != 0)
-            {
-                //rilascio lock sul sender
-                pthread_mutex_unlock(&sender->mtx);
-                return -1;
-            }
-
-            //file non esistente
-            else
-                rc = send_fail_message(sender->fd,OP_NO_SUCH_FILE,utenti);
-        }
-        //file trovato,lo leggo e invio la risposta al client
-        else{
-
-            //qui la composizione e l'invio del messaggio e' fatto esplicitamente
-            size_t byte_read = 0;
-
-            tmp_file_data = malloc(file_size);
-
-            //leggo la data del file e lo salvo nel buffer del messaggio di risposta
-            byte_read = fread(tmp_file_data,1,file_size,file_request);
-
-            //errore read nel file
-            if(byte_read != file_size)
-            {
-                fclose(file_request);
-                pthread_mutex_unlock(&sender->mtx);
-                return -1;
-            }
-
-            fclose(file_request);
-
-            rc = send_ok_message(sender->fd,tmp_file_data,file_size);
-
-            //incremento numero di file spediti dal server
-            rc = pthread_mutex_lock(utenti->mtx_stat);
-
-            if(rc)
-            {
-                pthread_mutex_unlock(&sender->mtx);
-                return -1;
-            }
-
-            ++(utenti->stat->nfiledelivered);
-
-            pthread_mutex_unlock(utenti->mtx_stat);
-
-        }
-    }
-
-    //rilascio lock del sender
-    pthread_mutex_unlock(&sender->mtx);
-
-    //controllo esito invio risposta
+    //errore lettura data file
     USER_ERR_HANDLER(rc,-1,-1);
 
+    //controllo dimensione file
+    if(rc > utenti->max_file_size)
+    {
+        free(file_data.buf);
+        return 1;
+    }
+
+
+    //creo path del file sulla directory del server
+    rc = snprintf(pathfile,UNIX_PATH_MAX,"%s/%s",utenti->media_dir,filename);
+
+    //errore snpritnf
+    if(rc < 0)
+    {
+        free(file_data.buf);
+        errno = EIO;
+        return -1;
+    }
+
+    //creo il file
+    file = fopen(pathfile,"w");
+
+    //errore creazione file
+    if(file == NULL)
+    {
+        free(file_data.buf);
+        return -1;
+    }
+
+    rc = fwrite(file_data.buf,1,file_data.hdr.len,file);
+
+
+    //libero memoria dal buffer
+    free(file_data.buf);
+
+    //errore scrittura
+    if(rc < 0)
+    {
+        fclose(file);
+        errno = EIO;
+        return -1;
+    }
+
+    //incremento numeri di file non ancora consegnati
+    rc = pthread_mutex_lock(utenti->mtx_stat);
+
+    //errore lock
+    if(rc)
+    {
+        fclose(file);
+        errno = rc;
+        return -1;
+    }
+
+    ++(utenti->stat->nfilenotdelivered);
+
+    pthread_mutex_unlock(utenti->mtx_stat);
+
+    //chiudo il file e termino
+    fclose(file);
+
     return 0;
-
 }
 
-static void removenl(char *string)
+/**
+ * @function send_message
+ * @brief Invia un messaggio al receiver sia esso online o offline
+ * @param receiver destinatario messaggio
+ * @param messaggio da inviare
+ * @param utenti elenco utenti registrati
+ * @return 0 messaggio inviato correttamente,altrimenti -1 e setta errno.
+ */
+static int send_message(utente_t *receiver,message_t *message,utenti_registrati_t *utenti)
 {
-    char *tmp;
+    int rc;
 
-    if((tmp = strchr(string,'\n')) != NULL)
-        *tmp = '\0';
+    //receiver online,posso mandargli direttamente il messaggio
+    if(receiver->isOnline)
+    {
+        rc = sendHeader(receiver->fd,&message->hdr);
+
+        //errore invio header
+        USER_ERR_HANDLER(rc,-1,-1);
+
+        rc = sendData(receiver->fd,&message->data);
+
+        //errore invio data
+        USER_ERR_HANDLER(rc,-1,-1);
+
+        //nessun errore riscontrato,aggiorno statistiche server
+        rc = pthread_mutex_lock(utenti->mtx_stat);
+
+        //errore lock
+        if(rc)
+        {
+            errno = rc;
+            return -1;
+        }
+
+        //se il tipo di messaggio e' testuale allora bisogna incrementare ndelivered
+        if(message->hdr.op == TXT_MESSAGE)
+            ++(utenti->stat->ndelivered);
+
+        //rilascio lock
+        pthread_mutex_unlock(utenti->mtx_stat);
+
+    }
+    //se non e' online,dobbiamo salvarlo nella directory personale del receiver,sottoforma di file
+    else
+    {
+        int id;//identificativo del messaggio
+
+        //creo identificatore messaggio
+        id = generate_id_message(receiver,utenti);
+
+        //creo il file messaggio da inviare
+        FILE *file_msg = create_message_file(id,receiver->personal_dir);
+
+        //errore creazione file
+        USER_ERR_HANDLER(file_msg,NULL,-1);
+
+        //scrivo il messaggio sul file
+        rc = write_on_file(file_msg,message);
+
+        //errore scrittura sul file
+        if(rc == -1)
+        {
+            fclose(file_msg);
+            return -1;
+        }
+
+        fclose(file_msg);
+
+        //nessun errore riscontrato,incremento numero di messaggi non ancora consegnati
+        rc = pthread_mutex_lock(utenti->mtx_stat);
+
+        //errore lock
+        if(rc)
+        {
+            errno = rc;
+            return -1;
+        }
+
+        //se il tipo di messaggio e' testuale allora bisogna decremetare nnotdelivered
+        if(message->hdr.op == TXT_MESSAGE)
+            ++(utenti->stat->nnotdelivered);
+
+        //rilascio lock
+        pthread_mutex_unlock(utenti->mtx_stat);
+    }
+
+    return 0;
 }
 
-//NOTA i messaggi vengono mandati dal piu recente al meno recente
+/**
+ * @function sendDataRemoteFile
+ * @brief invia tutti i file presenti nella directory personale di un utente
+ * @param utente utente che effettua la rihiesta
+ * @param utenti elenco utenti registrati
+ * @return 0 operazione effettuata con successo,altrimenti -1 e setta errno.
+ * @note i messaggi vengono mandati dal piu recente al meno recente
+ */
 static int sendDataRemoteFile(utente_t *utente,utenti_registrati_t *utenti)
 {
     char *file_path;
@@ -941,10 +610,399 @@ static int sendDataRemoteFile(utente_t *utente,utenti_registrati_t *utenti)
         return 0;
 }
 
-//per far funzionare una chiamata di funzione in inviaMessaggiRemoti
-static int _send_ok_message(int fd,size_t *buf,unsigned int len)
+/*FUNZIONI INTERFACCIA */
+utente_t *checkSender(char *sender_name,utenti_registrati_t *utenti,int *pos)
 {
-    return send_ok_message(fd,(char*)buf,len);
+    //controllo sender sia registrato
+    utente_t *sender = cercaUtente(sender_name,utenti,pos);
+
+    //sender non valido o non registrato o errore
+    USER_ERR_HANDLER(sender,NULL,NULL);
+
+    //controllo sender sia online
+    if(sender->isOnline == 0)
+    {
+        //rilascio lock sender
+        pthread_mutex_unlock(&sender->mtx);
+
+        errno = ENETDOWN;
+        return NULL;
+    }
+
+    return sender;
+}
+
+int send_ok_message(int fd,char *buf,unsigned int len)
+{
+    message_t response;
+    int rc;
+
+    //setto header, sender e receiver non ci interessano
+    setHeader(&response.hdr,OP_OK,"");
+
+    //mando header
+    rc = sendHeader(fd,&response.hdr);
+
+    //errore sendHeader
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    //se il buffer non e' vuoto,allora inviamo anche data del messaggio
+    if(len != 0 || strcmp(buf,"") != 0)
+    {
+        setData(&response.data,"",buf,len);
+        //mando data
+        rc = sendData(fd,&response.data);
+
+        //errore sendData
+        USER_ERR_HANDLER(rc,-1,-1);
+    }
+
+    return rc;
+}
+
+int send_fail_message(int fd,op_t op_fail,utenti_registrati_t *utenti)
+{
+    message_t err_response; //risposta di errore al client
+    int rc;
+
+    //preparo risposta con op_fail
+    setHeader(&err_response.hdr,op_fail,"");
+
+    //invio risposta,solo header perche' e' un errore
+    rc = sendHeader(fd,&err_response.hdr);
+
+    //errore invio messaggio
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    //incremento il numero di messaggi di errori inviati dal server
+
+    //lock su stat
+    rc = pthread_mutex_lock(utenti->mtx_stat);
+
+    //errore lock
+    if(rc)
+    {
+        errno = rc;
+        return -1;
+    }
+
+    //incremento numero di messaggi di errori inviati
+    ++(utenti->stat->nerrors);
+
+    //unlock stat
+    pthread_mutex_unlock(utenti->mtx_stat);
+
+    return 0;
+}
+
+int sendUserOnline(int fd,utenti_registrati_t *utenti)
+{
+    char user_online[MAX_NAME_LENGTH * MAX_USERS]; //stringa dove salvare i nick degli utenti online
+    size_t size = MAX_NAME_LENGTH * MAX_USERS;
+    int new_size = 0; //nuova size della stringa dopo aver scritto i nick al suo interno
+    int rc;
+
+    rc = mostraUtentiOnline(user_online,&size,&new_size,utenti);
+
+    //se sono fallito per altro
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    //mando messaggio di ok,con la stringa degli utenti online
+    rc = send_ok_message(fd,user_online,new_size);
+
+    return rc;
+}
+
+int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t size_msg,messaggio_id_t type,utenti_registrati_t *utenti)
+{
+    int rc;
+
+    //controllo sender sia registrato ed online
+    utente_t *sender = checkSender(sender_name,utenti,NULL);
+
+    if(sender == NULL)
+    {
+        /* se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato,
+           oppure si sta cercando di autoinviarsi un messaggio */
+        if(errno == EPERM || errno == ENETDOWN || errno == 0 || strcmp(sender_name,receiver_name) == 0)
+        {
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+        }
+        //errore checkSender
+        else{
+            return -1;
+        }
+    }
+    //controllo dimensione messaggio,sia esso un file o un testuale
+    else if(size_msg > utenti->max_msg_size)
+    {
+        //invio errore di messaggio testuale troppo grande
+        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+    }
+    //altrimenti sender valido e messaggio valido
+    else{
+
+        //controllo stato del receiver: Deve essere solo registrato
+        utente_t *receiver = cercaUtente(receiver_name,utenti,NULL);
+
+        //receiver non valido
+        if(receiver == NULL)
+        {
+            //receiver non registrato oppure nome receiver invalido
+            if(errno == 0 || errno == EPERM)
+            {
+                rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+            }
+            //errore ricerca receiver
+            else{
+                return -1;
+            }
+        }
+        //receiver valido
+        else
+        {
+            //preparo messaggio
+            message_t txt_message;
+
+            //in base al tipo di messaggio setto l'header
+            if(type == TEXT_ID)
+            {
+                setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
+            }
+            else{
+                setHeader(&txt_message.hdr,FILE_MESSAGE,sender->nickname);
+            }
+
+            setData(&txt_message.data,receiver->nickname,msg,size_msg);
+
+            rc = send_message(receiver,&txt_message,utenti);
+
+            //rilascio lock receiver
+            pthread_mutex_unlock(&receiver->mtx);
+
+            //errore in send_text_message
+            if(rc == -1)
+            {
+                //rilasciare lock del sender
+                pthread_mutex_unlock(&sender->mtx);
+
+                return -1;
+            }
+
+            //se si tratta di un file,devo fare anche l'upload sulla directory del server
+            if(type == FILE_ID)
+            {
+                rc = uploadFile(sender->fd,msg,utenti);
+
+                //file troppo grande
+                if(rc == 1)
+                {
+                    //invio messaggio errore file size troppo grande
+                    rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+
+                    pthread_mutex_unlock(&sender->mtx);
+
+                    //errore invio  messaggio
+                    USER_ERR_HANDLER(rc,-1,-1);
+
+                    return 0;
+
+                }
+                //errrore nell'uploadFile
+                if(rc == -1)
+                {
+                    pthread_mutex_unlock(&sender->mtx);
+                    return -1;
+                }
+            }
+
+            //se non ci sono stati errori mando risposta al sender di OP_OK
+            rc = send_ok_message(sender->fd,"",0);
+
+            //solo ora posso rilasciare lock del sender
+            pthread_mutex_unlock(&sender->mtx);
+
+        }
+    }
+
+    //controllo esito invio messaggio
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    return 0;
+}
+
+int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,utenti_registrati_t *utenti)
+{
+    int rc;
+    int sender_pos;
+
+    //controllo sender sia registrato ed online
+    utente_t *sender = checkSender(sender_name,utenti,&sender_pos);
+
+    if(sender == NULL)
+    {
+        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+        if(errno == EPERM || errno == ENETDOWN || errno == 0)
+        {
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+        }
+        //errore checkSender
+        else{
+            return -1;
+        }
+    }
+    //controllo dimensione messaggio
+    else if(size_msg > utenti->max_msg_size)
+    {
+        //invio errore di messaggio troppo grande
+        rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+    }
+    else
+    {
+        //preparo messaggio
+        message_t txt_message;
+
+        setHeader(&txt_message.hdr,TXT_MESSAGE,sender->nickname);
+        setData(&txt_message.data,"",msg,size_msg);
+
+        //scorro tutti gli utenti registrati
+        for (size_t i = 0; i < MAX_USERS; i++)
+        {
+            //caso in cui analizzo il sender.Vado alla prossima iterazione.
+            if(sender_pos == i)
+                continue;
+
+            utente_t *receiver = &utenti->elenco[i];
+
+            rc = pthread_mutex_lock(&receiver->mtx);
+
+            if(rc)
+            {
+                errno = rc;
+                return -1;
+            }
+
+            //se e' un utente registrato,gli mando il messaggio
+            if(receiver->isInit)
+            {
+                rc = send_message(receiver,&txt_message,utenti);
+            }
+
+            pthread_mutex_unlock(&receiver->mtx);
+
+            //errore in send_text_message
+            if(rc == -1)
+            {
+                //rilascio lock del sender
+                pthread_mutex_unlock(&sender->mtx);
+
+                return -1;
+            }
+
+        }
+
+        //se non ci sono stati errori mando risposta al sender di OP_OK
+        rc = send_ok_message(sender->fd,"",0);
+
+        //solo ora posso rilasciare lock del sender
+        pthread_mutex_unlock(&sender->mtx);
+    }
+
+    //controllo esito del messaggio di risposta al sender
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    return 0;
+}
+
+int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
+{
+    int rc;
+    FILE *file_request;
+    size_t file_size = 0;
+    char *tmp_file_data = NULL;
+
+    //controllo sender sia registrato ed online
+    utente_t *sender = checkSender(sender_name,utenti,NULL);
+
+    if(sender == NULL)
+    {
+        //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+        if(errno == EPERM || errno == ENETDOWN || errno == 0)
+        {
+            rc = send_fail_message(sender->fd,OP_FAIL,utenti);
+        }
+        //errore checkSender
+        else{
+            return -1;
+        }
+    }
+    //cerco il file ricercato dal sender e glielo invio se esiste
+    else
+    {
+        //cerco il file nella directory del server
+        file_request = search_file(filename,utenti->media_dir,&file_size);
+
+        if(file_request == NULL)
+        {
+            //errore nella ricerca del file
+            if(errno != 0)
+            {
+                //rilascio lock sul sender
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            //file non esistente
+            else
+                rc = send_fail_message(sender->fd,OP_NO_SUCH_FILE,utenti);
+        }
+        //file trovato,lo leggo e invio la risposta al client
+        else{
+
+            size_t byte_read = 0;
+
+            tmp_file_data = malloc(file_size);
+
+            //leggo la data del file e lo salvo nel buffer del messaggio di risposta
+            byte_read = fread(tmp_file_data,1,file_size,file_request);
+
+            //errore read nel file
+            if(byte_read != file_size)
+            {
+                fclose(file_request);
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            fclose(file_request);
+
+            //invio il file attraverso un messaggio di OP_OK
+            rc = send_ok_message(sender->fd,tmp_file_data,file_size);
+
+            //incremento numero di file spediti dal server
+            rc = pthread_mutex_lock(utenti->mtx_stat);
+
+            if(rc)
+            {
+                pthread_mutex_unlock(&sender->mtx);
+                return -1;
+            }
+
+            ++(utenti->stat->nfiledelivered);
+
+            pthread_mutex_unlock(utenti->mtx_stat);
+
+        }
+    }
+
+    //rilascio lock del sender
+    pthread_mutex_unlock(&sender->mtx);
+
+    //controllo esito invio risposta
+    USER_ERR_HANDLER(rc,-1,-1);
+
+    return 0;
+
 }
 
 int inviaMessaggiRemoti(char *sender_name,utenti_registrati_t *utenti)
