@@ -1,6 +1,12 @@
 # Prerequisites
 *.d
 
+# Personale
+*.info
+chatty
+client
+
+
 # Object files
 *.o
 *.ko
