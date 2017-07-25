@@ -16,11 +16,10 @@
 #include<errno.h>
 #include<sys/select.h>
 #include<sys/time.h>
+#include"utils.h"
 #include"server.h"
 #include"config.h"
 
-// lunghezza massima del path in Unix
-#define DEBUG
 
 server_t* init_server(char *sockname,size_t messageSize,int max_connection)
 {
@@ -34,10 +33,10 @@ server_t* init_server(char *sockname,size_t messageSize,int max_connection)
         return NULL;
     }
 
-    //alloco server e controllo esito
+    //alloco istanza del server e controllo esito
     server = (server_t*)malloc(sizeof(server_t));
 
-    SERVER_ERR_HANDLER(server,NULL,NULL);
+    error_handler_1(server,NULL,NULL);
 
     //inizializzazione indirizzo server
 

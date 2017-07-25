@@ -16,13 +16,6 @@
 
 /* GESTIONE ERRORI THREADPOOL */
 
-/* Per indicare l'errore di ritono quando un thread del pool e' fallito */
-#define THREAD_FAILED 2
-
-//handler per la gestione degli errori nel threadpool
-#define TP_ERROR_HANDLER_1(err,ret)   \
-    do{ if(err){errno = err;return ret;}}while(0)
-
 //handler che esegue anche una funzione
 #define TP_ERROR_HANDLER_2(err,ret,fun)   \
     do{ if(err){errno = err;fun;return ret;}}while(0)
@@ -85,9 +78,7 @@ typedef struct threadpool{
 /**
  * @function threadpool_create
  * @brief Crea un threadpool,e lo inizializza
- *
  * @param thread_in_pool numero di thread da inserire nel pool
- *
  * @return Puntatore alla struttura del threadpool.On error setta errno,e ritorna NULL.
  */
 threadpool_t *threadpool_create(int thread_in_pool);
@@ -95,26 +86,20 @@ threadpool_t *threadpool_create(int thread_in_pool);
 /**
  * @function threadpool_destroy
  * @brief Termina e dealloca l'intera struttura del threadpool
- *
  * @param pool puntatore alla locazione di memoria dove risiede il puntatore al threadpool
- *
  * @note @param pool,viene passato questo puntatore per una corretta deallocazione
- *
  * @return On success ritorna 0. Oppure  -1 se c'e' un errore nella destroy e setta errno.
-           Altrimenti ritorna codice dell'errore con cui e' fallito un thread del pool.
+ *           Altrimenti ritorna codice dell'errore con cui e' fallito un thread del pool.
  */
 int threadpool_destroy(threadpool_t **pool);
 
 /**
  * @function threadpool_add_task
  * @brief Inserisce un nuovo task nella coda dei task
- *
  * @param tp threadpool
  * @param function funzione da eseguire
  * @param arg argomento della funzione
- *
  * @return 0 on success,altrimenti -1 e setta errno
- *
  * @note la funzione e l'argomento diverrano poi un task.
  */
 int threadpool_add_task(threadpool_t *tp,int (*function)(void *),void* arg);

@@ -1,5 +1,5 @@
 /**
- * @file  utils.h.h
+ * @file  utils.h
  * @brief File che contiene alcune macro e funzioni utili: error handling,ecc..
  * @author Gionatha Sturba 531274
  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
@@ -24,8 +24,8 @@
 #define error_handler_2(err,val,ret,err_no)         \
     do{if( (err) == (val) ){errno = err_no;return (ret);} }while(0)
 
-#define error_handler_3(err,val,ret,err_no)         \
-    do{if( (err) != (val) ){errno = err_no;return (ret);} }while(0)
+#define error_handler_3(err,ret)         \
+    do{if(err){errno = err;return (ret);} }while(0)
 
 /* Gestione degli errori per chiamate di sistema */
 #define err_meno1_ex(s,m) \

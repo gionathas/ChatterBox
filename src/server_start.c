@@ -5,6 +5,7 @@
  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  * originale dell'autore
  */
+
  /*macro per warning di funzioni */
 #define _BSD_SOURCE
 #define _POSIX_C_SOURCE 200112L
@@ -19,6 +20,7 @@
 #include<signal.h>
 #include<sys/select.h>
 #include<sys/time.h>
+#include"utils.h"
 #include"server.h"
 #include"queue.h"
 
@@ -63,13 +65,14 @@ typedef struct{
 }descriptor_queue_t;
 
 /* Variabili globali utili*/
-static server_t *server;
+
+static server_t *server; //istanza del server
 
 /* Coda dei descrittori da aggiornare: Viene utilizzata per aggiornare i descrittori
    del set utilizzati dalla select */
 static descriptor_queue_t descriptors;
 
-/* Funzioni globali */
+/* Funzioni globali utilizzate dal server ed i suoi thread */
 static int (*client_manager_fun)(void *,int,void*);
 static void *arg_cmf;
 
@@ -84,7 +87,7 @@ static void *arg_dc;
 
 static int (*read_message_fun)(int,void*);
 
-/*Flag segnali */
+/*Flag per gestione segnali */
 static volatile sig_atomic_t run = 0; //stato del server
 static volatile sig_atomic_t updateSet = 0; //per segnalare di aggiornare il set dei descrittori
 static volatile sig_atomic_t sigusr = 0; //per segnalare di eseguire il segnale sigusr1
@@ -102,89 +105,45 @@ typedef struct{
     pthread_mutex_t mtx;
 }worker_args_t;
 
-/**
- * @function prepare_arg
- * @param args insieme degli argomenti per i thread del pool
- * @param fd_client fd da passare al thread del pool
- * @return puntatore all'elemento per il thread del pool,altrimenti NULL e setta errno
- */
-static worker_args_t* prepare_arg(worker_args_t *args,int fd_client)
-{
-    int err;
-    int i;
-    int isInit = 0; //per vedere se la posizione e' inizializzata
-
-    //cerco una posizione libera per l'argomento all'interno dell'array degli argomenti
-    for (i = 0; i < server->max_connection; i++)
-    {
-        //se non e' ancora inizializzata,si puo' utilizzare senza fare la lock
-        if(args[i].fd_client == 0)
-            break;
-
-        //altrimenti devo fare la lock
-        err = pthread_mutex_lock(&args[i].mtx);
-
-        if(err)
-        {
-            errno = err;
-            return NULL;
-        }
-
-        //posizione attualmente non utilizzata
-        if(args[i].arg_used == 0)
-        {
-            isInit = 1;
-            pthread_mutex_unlock(&args[i].mtx);
-            break;
-        }
-
-        pthread_mutex_unlock(&args[i].mtx);
-
-    }
-
-    //overflow delgli argomenti
-    if(i == server->max_connection)
-    {
-        errno = EAGAIN;
-        return NULL;
-    }
-
-    //posizione non ancora inizializzata,devo inizializzarla
-    if(!isInit)
-    {
-        //inizializzo mutex per la posizione
-        err = pthread_mutex_init(&args[i].mtx,NULL);
-
-        //errore nell'inizializzazione del mutex
-        if(err)
-        {
-            errno = err;
-            return NULL;
-        }
-    }
-
-    //inizializzo altri parametri
-    args[i].fd_client = fd_client;
-    args[i].arg_used = 1;
-
-    //ritorno la posizione,sottoforma di puntatore
-    return (args+i);
-}
+/*FUNZIONI DI SUPPORTO*/
 
 /**
- * @function close_all_client
- * @brief chiude tutti i client attualmente connessi al server
- * @param max_sd numero di descrittori controllati
- * @param set insieme dei descrittori controllati
+ * @function listener
+ * @brief Funzione che deve eseguire il listener_thread
+ * @param arg argomenti per il listener
+ *
+ * @return EXIT_SUCCESS in caso di successo,altrimenti EXIT_FAILURE
+ *         in questo caso se e' fallito un thread del pool del server
+ *         setta thread_error per propagare il codice dell'errore
+ *         del thread che e' fallito
+ *
  */
-static void close_all_client(int max_sd,fd_set *set)
-{
-    for (int i=0; i <= max_sd; ++i)
-    {
-        if (FD_ISSET(i,set))
-            close(i);
-    }
-}
+static void* listener(void *arg);
+
+/**
+  * @function init_worker
+  * @brief Startup di un thread worker del pool
+  * @param arg argomenti per il thread worker
+  * @note in caso di errore stampa a video l'errore, e manda un segnale di terminazione al server
+  */
+static int init_worker(void *arg);
+
+/**
+ * @function set_listener_signal_handler
+ * @brief Gestione dei segnali per il listener
+ * @return on success 0,altrimenti -1 e setta errno
+ */
+static int set_listener_signal_handler();
+
+/**
+ * @function update_active_set
+ * @brief aggiorna il set dei descrittori controllati dal server
+ * @param active_set insieme dei descrittori controllati
+ * @param actual_client numero attuali di client connessi
+ * @param max_fd indice massimo dei descrittori
+ * @return 0 on success,altrimenti -1 e setta errno
+ */
+static int update_active_set(fd_set *active_set,int *actual_client,int *max_fd);
 
 /**
  * @function remove_client
@@ -194,28 +153,44 @@ static void close_all_client(int max_sd,fd_set *set)
  * @param actual_client numero di client connessi
  * @max_fd indice massimo di descrittori controllati
  */
-static void remove_client(int fd,fd_set *active_set,int *actual_client,int *max_fd)
-{
-    #ifdef DEBUG
-        printf("Rimozione client %d\n",fd);
-    #endif
+static void remove_client(int fd,fd_set *active_set,int *actual_client,int *max_fd);
 
-    //decremento numero attuale di client connessi
-    --*actual_client;
+/**
+ * @function close_all_client
+ * @brief chiude tutti i client attualmente connessi al server
+ * @param max_sd numero di descrittori controllati
+ * @param set insieme dei descrittori controllati
+ */
+static void close_all_client(int max_sd,fd_set *set);
 
-    //aggiorno l'indice
-    if(fd == *max_fd)
-    {
-        //aggiorno l'indice massimo
-        while(FD_ISSET(*max_fd,active_set) == 0)
-            *max_fd -= 1;
-    }
+/**
+ * @function prepare_arg
+ * @brief prepara gli argomenti da passare ad un thread del pool del server
+ * @param args insieme degli argomenti per i thread del pool
+ * @param fd_client fd da passare al thread del pool
+ * @return puntatore all'elemento per il thread del pool,altrimenti NULL e setta errno
+ */
+static worker_args_t* prepare_arg(worker_args_t *args,int fd_client);
 
-    //chiudo il descrittore
-    close(fd);
-}
+/**
+ * @function server_close
+ * @brief Termina il server,deallocando tutto
+ *
+ * @param max_fd indice massimo dei descrittori attivi
+ * @param active_set insieme dei descrittori controllati
+ * @param wa_args insieme degli argomenti per i thread del pool
+ *
+ * @return 0 in caso di successo, -1 in caso di errore e setta errno,altrimenti
+ *          contiene il codice dell'errore con cui e' fallito un thread del pool del server
+ */
+static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args);
 
-/* Funzione per i segnali */
+/* Signal Handler */
+
+/**
+ * @function termination
+ * @brief Handler del segnale SIGTERM,SIGQUIT,SIGINT
+ */
 static inline void termination()
 {
     #ifdef DEBUG
@@ -248,357 +223,127 @@ static inline void sigdescript()
     updateSet = 1;
 }
 
-/**
- * @function set_listener_signal_handler
- * @brief Gestione dei segnali per il listener
- * @return on success 0,altrimenti -1 e setta errno
- */
-static int set_listener_signal_handler()
+/*Implementazione Funzioni*/
+
+int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
 {
-    int err = 0;
-    struct sigaction sa;
-    sigset_t signal_mask;
+    int err = 0,curr_error;
+    sigset_t signal_mask,old_mask;
 
-    //metto una maschera ad i segnali interessati,per installare i gestori
-    err = sigemptyset(&signal_mask);
-    err = sigaddset(&signal_mask,SIGPIPE);
-    err = sigaddset(&signal_mask,SIGQUIT);
-    err = sigaddset(&signal_mask,SIGTERM);
-    err = sigaddset(&signal_mask,SIGINT);
-    err = sigaddset(&signal_mask,SIGUSR2);
-    err = sigaddset(&signal_mask,SIGUSR1);
-
-    //errore nel set dei segnali
-    if(err == -1)
-        return -1;
-
-    err = pthread_sigmask(SIG_SETMASK,&signal_mask,NULL);
-
-    //errore nel set della maschera
-    if(err)
+    //controllo parametri di inizializzazione del server
+    if(srv == NULL || funs.client_manager_fun == NULL || funs.read_message_fun == NULL || funs.client_out_of_bound == NULL || funs.disconnect_client == NULL)
     {
-        errno = err;
-        return -1;
+        errno = EINVAL;
+        curr_error = errno;
+        goto st_error;
     }
 
-    //inizializzo la struttura per gestire i segnali
-    memset(&sa,0,sizeof(sa));
+    //inizializzo il server dichiarato globalmente
+    server = srv;
 
-    sa.sa_flags = 0; //non voglio il restart del SC
-
-    //ingnoriamo SIGPIPE
-    sa.sa_handler = SIG_IGN;
-    err = sigaction(SIGPIPE,&sa,NULL);
-
-    //terminazione
-    sa.sa_handler = termination;
-    err = sigaction(SIGTERM,&sa,NULL);
-    err = sigaction(SIGQUIT,&sa,NULL);
-    err = sigaction(SIGINT,&sa,NULL);
-
-    //arrivo di SIGUSR1
-    sa.sa_handler = sigusr1;
-    err = sigaction(SIGUSR1,&sa,NULL);
-
-    //arrivo di SIGUSR2
-    sa.sa_handler = sigdescript;
-    err = sigaction(SIGUSR2,&sa,NULL);
-
-    //errore nei sigaction
-    if(err == -1)
-    {
-        return -1;
-    }
-
-    //rimetto la maschera predefinita
-    err = sigemptyset(&signal_mask);
-
-    //errore emptyset
-    if(err == -1)
-        return -1;
-
-    err = pthread_sigmask(SIG_SETMASK,&signal_mask,NULL);
-
-    //errore sigmask
-    if(err)
-    {
-        errno = err;
-        return -1;
-    }
-
-    return 0;
-}
-
-/**
- * @function update_active_set
- * @brief aggiorna il set dei descrittori controllati dal server
- * @param active_set insieme dei descrittori controllati
- * @param actual_client numero attuali di client connessi
- * @param max_fd indice massimo dei descrittori
- * @return 0 on success,altrimenti -1 e setta errno
- */
-static int update_active_set(fd_set *active_set,int *actual_client,int *max_fd)
-{
-    #ifdef DEBUG
-        printf("Aggiorno set descrittori\n");
-    #endif
-
-    int fd,err;
-    queue_descr_elem_t *descr; //elemento della coda dei descittori
-
-    //risetto a 0 il flag del segnale
-    updateSet = 0;
-
-    //lock sulla coda dei descrittori da aggiornare
-    err = pthread_mutex_lock(&descriptors.mtx);
-
-    //errore lock
-    if(err)
-    {
-        errno = err;
-        return -1;
-    }
-
-    //fin quando ci sono descrittori da aggiornare
-    while(descriptors.queue->size != 0)
-    {
-        //estraggo l'elemento
-        descr = pop_queue(descriptors.queue);
-
-        //errore nell'estrazione
-        if(descr == NULL)
-        {
-            pthread_mutex_unlock(&descriptors.mtx);
-            return -1;
-        }
-
-        pthread_mutex_unlock(&descriptors.mtx);
-
-        fd = descr->fd; //rinominazione
-
-        //se bisogna risettare il descrittore
-        if(descr->op == SET)
-        {
-            FD_SET(fd,active_set);
-        }
-        else{
-            //bisogna rimuovere
-            remove_client(fd,active_set,actual_client,max_fd);
-        }
-
-        //lock se torniamo ad inizio del ciclo while
-        err = pthread_mutex_lock(&descriptors.mtx);
-
-        //errore lock
-        if(err)
-        {
-            errno = err;
-            return -1;
-        }
-    }
-
-    //unlock finale
-    pthread_mutex_unlock(&descriptors.mtx);
-
-    return 0;
-}
-
-/**
- * @function server_close
- * @brief Termina il server,deallocando tutto
- *
- * @param max_fd indice massimo dei descrittori attivi
- * @param active_set insieme dei descrittori controllati
- * @param wa_args insieme degli argomenti per i thread del pool
- *
- * @return 0 in caso di successo, -1 in caso di errore e setta errno,altrimenti
- *          contiene il codice dell'errore con cui e' fallito un thread del pool del server
- */
-static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
-{
-    #ifdef DEBUG
-        printf("Avviata terminazione server\n");
-    #endif
-
-    int err;
-
-    close_all_client(max_fd,active_set);
-    free(wa_args);
-
-    err = pthread_mutex_destroy(&descriptors.mtx);
+    //blocco tutti i segnali per i thread del pool,e per questo thread che fa la join
+    sigfillset(&signal_mask);
+    err = pthread_sigmask(SIG_SETMASK,&signal_mask,&old_mask);
 
     if(err)
     {
         errno = err;
-        return -1;
+        curr_error = errno;
+        goto st_error;
     }
 
-    destroy_queue(&descriptors.queue);
+    //faccio partire il threadpool
+    server->threadpool = threadpool_create(num_pool_thread);
 
-    err = threadpool_destroy(&server->threadpool);
-
-    //errore destroy
-    if(err == -1)
+    //errore creazione threadpool
+    if(server->threadpool == NULL)
     {
-        return -1;
+        curr_error = errno;
+        goto st_error;
     }
-    else{//continuo chiusura
 
-        int curr_error = 0;
+    //Inizializzo le funzioni globali
+    client_manager_fun = funs.client_manager_fun;
+    arg_cmf = funs.arg_cmf;
 
-        //controllo se un thread sia fallito
-        if(err > 0)
-            curr_error = err;
+    signal_usr_handler = funs.signal_usr_handler;
+    arg_suh = funs.arg_suh;
 
-        //rimuovo indirizzo fisico
-        err = unlink(server->sa.sun_path);
+    client_out_of_bound = funs.client_out_of_bound;
+    arg_cob = funs.arg_cob;
 
-        //errore unlink
-        if(err == -1)
-        {
-            return -1;
-        }
+    disconnect_client = funs.disconnect_client;
+    arg_dc = funs.arg_dc;
 
-        close(server->fd);
-        free(server);
+    read_message_fun = funs.read_message_fun;
 
-        //curr_error puo contenere il codice dell'errore con cui e' fallito il thread
-        return curr_error;
-    }
-}
 
-/**
-  * @function init_worker
-  * @brief Startup di un thread worker del pool
-  * @param arg argomenti per il thread worker
-  * @note in caso di errore stampa a video l'errore, e manda un segnale di terminazione al server
-  */
-static int init_worker(void *arg)
-{
-    int err;
-    void *buff,*err2; //buffer e gestione errori
-    int rc;
+    //avvio listener
+    err = pthread_create(&server->listener_thread,NULL,listener,NULL);
 
-    //cast degli argomenti
-    worker_args_t *wa = (worker_args_t*)arg;
-
-    //elemento da inserire nella coda dei descrittori da aggiornare
-    queue_descr_elem_t elem;
-    elem.fd = wa->fd_client;
-
-    //alloco spazio per il buffer
-    buff = malloc(server->messageSize);
-
-    //allocazione andata male
-    if(buff == NULL)
+    //errore create
+    if(err)
     {
-        return -1;
+        errno = err;
+        curr_error = errno;
+        goto st_error2;
     }
-    else
+
+    int status;
+
+    //metto questo thread in attesa con una join sul thread del listener
+    err = pthread_join(server->listener_thread,(void*)&status);
+
+    //errore join
+    if(err)
     {
-        //inzializzo il buffer che conterra' il messaggio di un client
-        memset(buff,0,server->messageSize);
+        errno = err;
+        curr_error = errno;
+        goto st_error2;
+    }
 
-        //funzione per fare la read del messaggio del client
-        rc = (*(read_message_fun))(wa->fd_client,buff);
-
-        //errore nella read
-        if(rc == -1)
-        {
-            goto work_error;
-        }
-        //connessione con il client chiusa
-        else if(rc == 0)
-        {
-            //disconetto il client
-            rc = disconnect_client(wa->fd_client,arg_dc);
-
-            //errore nella disconnessione
-            if(rc == -1)
-            {
-                goto work_error;
-            }
-
-            //setto questo fd come da rimuovere,nella coda dei descrittori da aggiornare
-            elem.op = REMOVE;
-        }
+    //errore server
+    if(status == EXIT_FAILURE)
+    {
+        //se e' fallito un thread,ritorno il codice dell'errore con cui e' fallito
+        if(thread_error > 0)
+            return thread_error;
+        //altrimenti c'e' stato un errore interno del server. Ritorno solo -1,errno gia settato
         else
-        {
-            //funzione per la gestione del client
-            rc = (*(client_manager_fun))(buff,wa->fd_client,arg_cmf);
-
-            //errore funzione
-            if(rc == -1)
-            {
-                goto work_error;
-            }
-
-            //faccio risettare questo fd,perche' potrebbe inviare nuove richieste.
-            elem.op = SET;
-        }
+            return -1;
     }
-    //aggiungo alla coda dei descrittori da aggiornare
-    err = pthread_mutex_lock(&descriptors.mtx);
-    //errore nella lock
-    if(err)
-    {
-        errno = err;
-        goto work_error;
-    }
+    //tutto ok
+    else
+        return 0;
 
-    //inserisco nella coda
-    err2 = push_queue(descriptors.queue,(void*)&elem);
+//error_handling
+st_error2:
+    threadpool_destroy(&server->threadpool);
+    goto st_error;
+st_error:
 
-    //errore psuh
-    if(err2 == NULL)
-    {
-        pthread_mutex_unlock(&descriptors.mtx);
-        goto work_error;
-    }
+    //rimuovo indirizzo fisico
+    unlink(server->sa.sun_path);
 
-    pthread_mutex_unlock(&descriptors.mtx);
+    close(server->fd);
+    free(server);
 
-    /* Avverto con il segnale SIGUSR2, il listener sull'aggiornamento della coda dei descrittori.
-       Qui bisogna mandare un segnale direttamente al processo,perche' il segnale verra' gestito
-       comunque dal listener. L'utilizzo di pthread_kill non puo' essere implementato perche' buggato */
-    kill(getpid(),SIGUSR2);
-
-    //finito di eseguire la funzione,setto l'argomento come disponibile per essere riutilizzato
-    err = pthread_mutex_lock(&wa->mtx);
-
-    //errore nella lock
-    if(err)
-    {
-        errno = err;
-        goto work_error;
-    }
-
-    wa->arg_used = 0;
-
-    pthread_mutex_unlock(&wa->mtx);
-
-    free(buff);
-
-    //la funzione termina qui
-    return 0;
-
-//handler errori:
-work_error:
-    free(buff);
+    //risetto errno per sicurezza,cioe' che una funzione appena chiamata non fallisca e mi cambi errno
+    errno = curr_error;
     return -1;
 }
 
- /**
-  * @function listener
-  * @brief Funzione che deve eseguire il listener_thread
-  * @param arg argomenti per il listener
-  *
-  * @return EXIT_SUCCESS in caso di successo,altrimenti EXIT_FAILURE
-  *         in questo caso se e' fallito un thread del pool del server
-  *         setta thread_error per propagare il codice dell'errore
-  *         del thread che e' fallito
-  *
-  */
+/**
+ * @function listener
+ * @brief Funzione che deve eseguire il listener_thread
+ * @param arg argomenti per il listener
+ *
+ * @return EXIT_SUCCESS in caso di successo,altrimenti EXIT_FAILURE
+ *         in questo caso se e' fallito un thread del pool del server
+ *         setta thread_error per propagare il codice dell'errore
+ *         del thread che e' fallito
+ *
+ */
 static void* listener(void *arg)
 {
      /* variabili utili */
@@ -880,112 +625,376 @@ static void* listener(void *arg)
      pthread_exit((void*)EXIT_FAILURE);
  }
 
-/* Funzione dell'interfaccia */
-
-int start_server(server_t *srv,int num_pool_thread,server_function_t funs)
+static int init_worker(void *arg)
 {
-    int err = 0,curr_error;
-    sigset_t signal_mask,old_mask;
+     int err;
+     void *buff,*err2; //buffer e gestione errori
+     int rc;
 
-    //controllo parametri di inizializzazione del server
-    if(srv == NULL || funs.client_manager_fun == NULL || funs.read_message_fun == NULL || funs.client_out_of_bound == NULL)
+     //cast degli argomenti
+     worker_args_t *wa = (worker_args_t*)arg;
+
+     //elemento da inserire nella coda dei descrittori da aggiornare
+     queue_descr_elem_t elem;
+     elem.fd = wa->fd_client;
+
+     //alloco spazio per il buffer
+     buff = malloc(server->messageSize);
+
+     //allocazione andata male
+     if(buff == NULL)
+     {
+         return -1;
+     }
+     else
+     {
+         //inzializzo il buffer che conterra' il messaggio di un client
+         memset(buff,0,server->messageSize);
+
+         //funzione per fare la read del messaggio del client
+         rc = (*(read_message_fun))(wa->fd_client,buff);
+
+         //errore nella read
+         if(rc == -1)
+         {
+             goto work_error;
+         }
+         //connessione con il client chiusa
+         else if(rc == 0)
+         {
+             //disconetto il client
+             rc = disconnect_client(wa->fd_client,arg_dc);
+
+             //errore nella disconnessione
+             if(rc == -1)
+             {
+                 goto work_error;
+             }
+
+             //setto questo fd come da rimuovere,nella coda dei descrittori da aggiornare
+             elem.op = REMOVE;
+         }
+         else
+         {
+             //funzione per la gestione del client
+             rc = (*(client_manager_fun))(buff,wa->fd_client,arg_cmf);
+
+             //errore funzione
+             if(rc == -1)
+             {
+                 goto work_error;
+             }
+
+             //faccio risettare questo fd,perche' potrebbe inviare nuove richieste.
+             elem.op = SET;
+         }
+     }
+     //aggiungo alla coda dei descrittori da aggiornare
+     err = pthread_mutex_lock(&descriptors.mtx);
+
+     //errore nella lock
+     if(err)
+     {
+         errno = err;
+         goto work_error;
+     }
+
+     //inserisco nella coda
+     err2 = push_queue(descriptors.queue,(void*)&elem);
+
+     //errore psuh
+     if(err2 == NULL)
+     {
+         pthread_mutex_unlock(&descriptors.mtx);
+         goto work_error;
+     }
+
+     pthread_mutex_unlock(&descriptors.mtx);
+
+     /* Avverto con il segnale SIGUSR2, il listener sull'aggiornamento della coda dei descrittori.
+        Qui bisogna mandare un segnale direttamente al processo,perche' il segnale verra' gestito
+        comunque dal listener. L'utilizzo di pthread_kill non puo' essere implementato perche' buggato */
+     kill(getpid(),SIGUSR2);
+
+     //finito di eseguire la funzione,setto l'argomento come disponibile per essere riutilizzato
+     err = pthread_mutex_lock(&wa->mtx);
+
+     //errore nella lock
+     if(err)
+     {
+         errno = err;
+         goto work_error;
+     }
+
+     wa->arg_used = 0;
+
+     pthread_mutex_unlock(&wa->mtx);
+
+     free(buff);
+
+     //la funzione termina qui
+     return 0;
+
+ //handler errori:
+ work_error:
+     free(buff);
+     return -1;
+}
+
+static int set_listener_signal_handler()
+{
+     int err = 0;
+     struct sigaction sa;
+     sigset_t signal_mask;
+
+     //metto una maschera ad i segnali interessati,per installare i gestori
+     err = sigemptyset(&signal_mask);
+     err = sigaddset(&signal_mask,SIGPIPE);
+     err = sigaddset(&signal_mask,SIGQUIT);
+     err = sigaddset(&signal_mask,SIGTERM);
+     err = sigaddset(&signal_mask,SIGINT);
+     err = sigaddset(&signal_mask,SIGUSR2);
+     err = sigaddset(&signal_mask,SIGUSR1);
+
+     //errore nel set dei segnali
+     error_handler_1(err,-1,-1);
+
+     //setto la maschera
+     err = pthread_sigmask(SIG_SETMASK,&signal_mask,NULL);
+
+     //errore nel set della maschera
+     error_handler_3(err,-1);
+
+     //inizializzo la struttura per gestire i segnali
+     memset(&sa,0,sizeof(sa));
+
+     sa.sa_flags = 0; //non voglio il restart delle SC
+
+     //ingnoriamo SIGPIPE
+     sa.sa_handler = SIG_IGN;
+     err = sigaction(SIGPIPE,&sa,NULL);
+
+     //terminazione
+     sa.sa_handler = termination;
+     err = sigaction(SIGTERM,&sa,NULL);
+     err = sigaction(SIGQUIT,&sa,NULL);
+     err = sigaction(SIGINT,&sa,NULL);
+
+     //arrivo di SIGUSR1
+     sa.sa_handler = sigusr1;
+     err = sigaction(SIGUSR1,&sa,NULL);
+
+     //arrivo di SIGUSR2
+     sa.sa_handler = sigdescript;
+     err = sigaction(SIGUSR2,&sa,NULL);
+
+     //errore nei sigaction
+     error_handler_1(err,-1,-1);
+
+     //rimetto la maschera predefinita
+     err = sigemptyset(&signal_mask);
+
+     //errore emptyset
+     error_handler_1(err,-1,-1);
+
+     err = pthread_sigmask(SIG_SETMASK,&signal_mask,NULL);
+
+     //errore sigmask
+    error_handler_3(err,-1);
+
+     return 0;
+ }
+
+static int update_active_set(fd_set *active_set,int *actual_client,int *max_fd)
+{
+     #ifdef DEBUG
+         printf("Aggiorno set descrittori\n");
+     #endif
+
+     int fd,err;
+     queue_descr_elem_t *descr = NULL; //elemento della coda dei descittori
+
+     //risetto a 0 il flag del segnale
+     updateSet = 0;
+
+     //lock sulla coda dei descrittori da aggiornare
+     err = pthread_mutex_lock(&descriptors.mtx);
+
+     //errore lock
+     error_handler_3(err,-1);
+
+     //fin quando ci sono descrittori da aggiornare
+     while(descriptors.queue->size != 0)
+     {
+         //estraggo l'elemento
+         descr = pop_queue(descriptors.queue);
+
+         //errore nell'estrazione
+         if(descr == NULL)
+         {
+             pthread_mutex_unlock(&descriptors.mtx);
+             return -1;
+         }
+
+         pthread_mutex_unlock(&descriptors.mtx);
+
+         fd = descr->fd; //rinominazione
+
+         //se bisogna risettare il descrittore
+         if(descr->op == SET)
+         {
+             FD_SET(fd,active_set);
+         }
+         else{
+             //bisogna rimuovere
+             remove_client(fd,active_set,actual_client,max_fd);
+         }
+
+         free(descr);
+         descr = NULL;
+
+         //lock se torniamo ad inizio del ciclo while
+         err = pthread_mutex_lock(&descriptors.mtx);
+
+         //errore lock
+         error_handler_3(err,-1);
+     }
+
+     //unlock finale
+     pthread_mutex_unlock(&descriptors.mtx);
+
+     return 0;
+ }
+
+static void remove_client(int fd,fd_set *active_set,int *actual_client,int *max_fd)
+{
+     #ifdef DEBUG
+         printf("Rimozione client %d\n",fd);
+     #endif
+
+     //decremento numero attuale di client connessi
+     --*actual_client;
+
+     //aggiorno l'indice
+     if(fd == *max_fd)
+     {
+         //aggiorno l'indice massimo
+         while(FD_ISSET(*max_fd,active_set) == 0)
+             *max_fd -= 1;
+     }
+
+     //chiudo il descrittore
+     close(fd);
+}
+
+worker_args_t* prepare_arg(worker_args_t *args,int fd_client)
+{
+    int err;
+    int i;
+    int isInit = 0; //per vedere se la posizione e' inizializzata
+
+    //cerco una posizione libera per l'argomento all'interno dell'array degli argomenti
+    for (i = 0; i < server->max_connection; i++)
     {
-        errno = EINVAL;
-        curr_error = errno;
-        goto st_error;
+        //se non e' ancora inizializzata,si puo' utilizzare senza fare la lock
+        if(args[i].fd_client == 0)
+            break;
+
+        //altrimenti devo fare la lock
+        err = pthread_mutex_lock(&args[i].mtx);
+
+        //errore lock
+        error_handler_3(err,NULL);
+
+        //posizione attualmente non utilizzata
+        if(args[i].arg_used == 0)
+        {
+            isInit = 1;
+            pthread_mutex_unlock(&args[i].mtx);
+            break;
+        }
+
+        pthread_mutex_unlock(&args[i].mtx);
+
     }
 
-    //inizializzo il server dichiarato globalmente
-    server = srv;
-
-    //blocco tutti i segnali per i thread del pool,e per questo thread che fa la join
-    sigfillset(&signal_mask);
-    err = pthread_sigmask(SIG_SETMASK,&signal_mask,&old_mask);
-
-    if(err)
+    //overflow delgli argomenti
+    if(i == server->max_connection)
     {
-        errno = err;
-        curr_error = errno;
-        goto st_error;
+        errno = EAGAIN;
+        return NULL;
     }
 
-    //faccio partire il threadpool
-    server->threadpool = threadpool_create(num_pool_thread);
-
-    //errore creazione threadpool
-    if(server->threadpool == NULL)
+    //posizione non ancora inizializzata,devo inizializzarla
+    if(!isInit)
     {
-        curr_error = errno;
-        goto st_error;
+        //inizializzo mutex per la posizione
+        err = pthread_mutex_init(&args[i].mtx,NULL);
+
+        //errore nell'inizializzazione del mutex
+        error_handler_3(err,NULL);
     }
 
-    //Inizializzo le funzioni globali
-    client_manager_fun = funs.client_manager_fun;
-    arg_cmf = funs.arg_cmf;
+    //inizializzo altri parametri
+    args[i].fd_client = fd_client;
+    args[i].arg_used = 1;
 
-    signal_usr_handler = funs.signal_usr_handler;
-    arg_suh = funs.arg_suh;
+    //ritorno la posizione,sottoforma di puntatore
+    return (args+i);
+}
 
-    client_out_of_bound = funs.client_out_of_bound;
-    arg_cob = funs.arg_cob;
+static int server_close(int max_fd,fd_set *active_set,worker_args_t *wa_args)
+{
+    #ifdef DEBUG
+        printf("Avviata terminazione server\n");
+    #endif
 
-    disconnect_client = funs.disconnect_client;
-    arg_dc = funs.arg_dc;
+    int err;
 
-    read_message_fun = funs.read_message_fun;
+    close_all_client(max_fd,active_set);
+    free(wa_args);
 
+    err = pthread_mutex_destroy(&descriptors.mtx);
 
-    //avvio listener
-    err = pthread_create(&server->listener_thread,NULL,listener,NULL);
+    //errore destroy
+    error_handler_3(err,-1);
 
-    //errore create
-    if(err)
+    destroy_queue(&descriptors.queue);
+
+    err = threadpool_destroy(&server->threadpool);
+
+    //errore destroy
+    if(err == -1)
     {
-
-        errno = err;
-        curr_error = errno;
-        goto st_error2;
+        return -1;
     }
+    else{//continuo chiusura
 
-    int status;
+        int curr_error = 0;
 
-    err = pthread_join(server->listener_thread,(void*)&status);
+        //controllo se un thread sia fallito
+        if(err > 0)
+            curr_error = err;
 
-    //errorejoin
-    if(err)
+        //rimuovo indirizzo fisico
+        err = unlink(server->sa.sun_path);
+
+        //errore unlink
+        error_handler_1(err,-1,-1);
+
+        close(server->fd);
+        free(server);
+
+        //curr_error puo contenere il codice dell'errore con cui e' fallito il thread
+        return curr_error;
+    }
+}
+
+static void close_all_client(int max_sd,fd_set *set)
+{
+    for (int i=0; i <= max_sd; ++i)
     {
-        errno = err;
-        curr_error = errno;
-        goto st_error2;
+        if (FD_ISSET(i,set))
+            close(i);
     }
-
-    //server fallito
-    if(status == EXIT_FAILURE)
-    {
-        //se e' fallito un thread,ritorno il codice dell'errore con cui e' fallito
-        if(thread_error > 0)
-            return thread_error;
-        //errore interno del server ritorno solo -1,errno gia settato
-        else
-            return -1;
-    }
-    //tutto ok
-    else
-        return 0;
-
-//definizione degli error_handling
-st_error2:
-    threadpool_destroy(&server->threadpool);
-    goto st_error;
-st_error:
-
-    //rimuovo indirizzo fisico
-    unlink(server->sa.sun_path);
-
-    close(server->fd);
-    free(server);
-
-    //risetto errno per sicurezza,cioe' che una funzione appena chiamata non fallisca e mi cambi errno
-    errno = curr_error;
-    return -1;
 }

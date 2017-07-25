@@ -156,7 +156,7 @@ void* pop_queue(queue_t *Q)
 
 static void* remove_head(queue_t *Q)
 {
-    //per salvare inf del nodo che sto per eliminare
+    //per salvare info del nodo che sto per eliminare
     void *data = malloc(Q->memSize);
 
     //controllo allocazione

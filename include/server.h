@@ -13,14 +13,11 @@
 #include<sys/un.h>
 #include"threadpool.h"
 
-#define SERVER_ERR_HANDLER(err,val,ret)         \
-    do{if( (err) == (val)){return (ret);} }while(0)
-
 /**
  * @struct server_t
  * @brief struttura del server
- *
  * @var threadpool threadpool del server
+ * @var fd fd del server
  * @var sa indirizzo del server
  * @var max_connection numero massimo di connessioni accettate dal server
  * @var messageSize size dei messaggi che riceve dai client
@@ -46,6 +43,8 @@ typedef struct server{
  * @var arg_suh argomenti per la funzione signal_usr_handler
  * @var client_out_of_bound funzione per gestire il caso in cui ci sono troppi client
  * @var arg_cob argomenti per la funzione client_out_of_bound
+ * @var disconnect_client funzione per gestire la disconnessione di un client
+ * @var arg_dc argomenti per la funzione disconnect_client
  *
  * @note tutte le funzioni ritornano int per controllare l'esito con cui terminano
  */
@@ -66,7 +65,7 @@ typedef struct{
  * @brief inizializza e configuro un nuovo server di tipo AF_UNIX
  *
  * @param sockname path del socket dove risiede il server
- * @param message size del messaggio che puo' ricevere il server
+ * @param messageSize size del messaggio che puo' ricevere il server
  * @param max_connection numero massimo di client che possono essere connessine
  *
  * @return on success puntatore al server,altimenti NULL e setta errno.

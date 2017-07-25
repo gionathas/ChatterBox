@@ -166,7 +166,7 @@ int main(int argc, char *argv[])
     funs.arg_dc = (void*)chattyUtenti;
 
     //faccio partire il server,da ora in poi posso terminarlo solo con un segnale
-    rc = start_server(server,1,funs);
+    rc = start_server(server,config.threads,funs);
 
     //controllo esito terminazione server.
     if(rc == -1 || rc > 0)

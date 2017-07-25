@@ -11,13 +11,13 @@ threadpool_t *tp;
 
 static void signal_hdr(int sig)
 {
-    res = threadpool_destroy(&tp);
+    
 }
 
 static int dummy_fun(void* arg)
 {
     errno = EINVAL;
-    return 0;
+    return -1;
 }
 
 int main()
@@ -46,7 +46,7 @@ int main()
         return -1;
     }
 
-    rc = threadpool_destroy(&tp);
+    res = threadpool_destroy(&tp);
 
-    return res;
+    return 0;
 }
