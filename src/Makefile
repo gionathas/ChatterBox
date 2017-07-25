@@ -11,7 +11,7 @@ queue_obj = queue.o
 chatty_obj = chatty.o connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o chatty_clients.o
 
 #target
-chatty:
+_chatty:
 	make connections.o
 	make chatty_parser.o
 	make messaggi_utenti.o
@@ -30,7 +30,7 @@ queue:
 	make libqueue.a
 
 #processi principali
-server_chatty.out:chatty.o
+chatty:chatty.o
 	$(CC) $(CFLAGS) -I $(INCLUDES) $< -o $@ -L $(LIBS_PATH) $(LIBS)
 
 client:client.o

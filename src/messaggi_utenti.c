@@ -271,7 +271,6 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
         return 1;
     }
 
-
     //creo path del file sulla directory del server
     rc = snprintf(pathfile,UNIX_PATH_MAX,"%s/%s",utenti->media_dir,filename);
 
@@ -733,11 +732,12 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
             return -1;
         }
     }
-    //controllo dimensione messaggio,sia esso un file o un testuale
-    else if(size_msg > utenti->max_msg_size)
+    //controllo dimensione messaggio,se esso e' un messaggio testuale
+    else if(type == TEXT_ID && size_msg > utenti->max_msg_size)
     {
         //invio errore di messaggio testuale troppo grande
         rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+        pthread_mutex_unlock(&sender->mtx);
     }
     //altrimenti sender valido e messaggio valido
     else{
