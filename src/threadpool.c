@@ -1,3 +1,10 @@
+/**
+ *  @file threadpool.c
+ *  @brief Implementazione del modulo del threadpool
+ *  @author Gionatha Sturba 531274
+ *  Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+ *  originale dell'autore
+ */
 #define _POSIX_SOURCE
 #include<stdlib.h>
 #include<pthread.h>
@@ -6,7 +13,7 @@
 #include<unistd.h>
 #include<signal.h>
 #include"threadpool.h"
-#include"macro_error.h"
+#include"utils.h"
 #include"queue.h"
 
 /*Definisco lo scheduling FIFO per la coda dei task */
