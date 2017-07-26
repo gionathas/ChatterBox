@@ -569,6 +569,8 @@ static int sendDataRemoteFile(utente_t *utente,utenti_registrati_t *utenti)
         unlink(file_path);
 
         free(file_path);
+        free(sender);
+        free(data);
 
         //decremento numero messaggi in remoto per l'utente attulae
         --utente->n_remote_message;
@@ -978,6 +980,8 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
 
             //invio il file attraverso un messaggio di OP_OK
             rc = send_ok_message(sender->fd,tmp_file_data,file_size);
+
+            free(tmp_file_data);
 
             //incremento numero di file spediti dal server
             rc = pthread_mutex_lock(utenti->mtx_stat);

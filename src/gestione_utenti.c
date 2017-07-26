@@ -1,6 +1,6 @@
 /**
- * @file  utenti.c
- * @brief Implementazione funzioni  per la gestione degli utenti di chatty
+ * @file  gestione_utenti.c
+ * @brief Implementazione modulo per la gestione degli utenti di chatty
  * @author Gionatha Sturba 531274
  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  * originale dell'autore
@@ -19,19 +19,28 @@
 #include<string.h>
 #include"utenti.h"
 #include"config.h"
+#include"utils.h"
 
 /* Size dell'array che contiene gli fd degli utenti */
 #define FD_UTENTI_LEN (MAX_USERS) + 4
 
-//struttura per un fd relativo ad un utente
+/**
+ * @struct fd_utente_t
+ * @brief Struttura per gestire un fd relativo ad un utente
+ * @var count numero attuale di utenti che attendo l'fd
+ * @var mtx mutex per sincronizzazione
+ * @var cond var cond per sincronizzazione
+ */
 typedef struct{
     int count;
     pthread_mutex_t mtx;
     pthread_cond_t cond;
 }fd_utente_t;
 
-/* Insieme delgi fd degli utenti,viene utilizzato per tener conto di quali fd sono attualmente utilizzati dagli utenti*/
+/* Insieme degli fd degli utenti,viene utilizzato per tener conto di quali fd sono attualmente utilizzati dagli utenti*/
 static fd_utente_t fd_utenti[FD_UTENTI_LEN];
+
+/* FUNZIONI DI SUPPORTO */
 
 /**
  * @function hash
@@ -64,10 +73,9 @@ static int remove_directory(char *path)
     int rc;
 
     //errore apertura directory
-    if (d == NULL)
-        return -1;
+    error_handler_1(d,NULL,-1);
 
-    struct dirent *p;
+    struct dirent *p; //puntatore agli elementi dentro una directory
 
     while (r == 0 && (p=readdir(d)) != NULL)
     {
@@ -91,10 +99,21 @@ static int remove_directory(char *path)
         struct stat statbuf;
 
         //scrivo dentro al buffer il path della sottodirectory che sto per analizzare
-        snprintf(buf, len, "%s/%s", path, p->d_name);
+        rc = snprintf(buf, len, "%s/%s", path, p->d_name);
 
+        //errore snprintf
+        if(rc < 0)
+        {
+            free(buf);
+            closedir(d);
+            errno = EIO;
+            return -1;
+        }
+
+        //analizzo con stat l'elemento corrente
         rc = stat(buf, &statbuf);
 
+        //errore stat
         if(rc == -1)
         {
             free(buf);
@@ -124,7 +143,7 @@ static int remove_directory(char *path)
     //chiudo directory attuale
     closedir(d);
 
-    //caso di directory vuota,posso ora eliminarla con rmdir
+   //caso di directory vuota,posso ora eliminarla con rmdir
    if (r == 0)
    {
       r = rmdir(path);
@@ -133,12 +152,157 @@ static int remove_directory(char *path)
    return r;
 }
 
-//per vedere quante cifre ci sono in un numero
+/**
+ * @function numOfDigits
+ * @brief Restituisce il numero di cifre che compongono un numero
+ */
 static inline int numOfDigits(int x)
 {
     return (floor(log10 (abs (x))) + 1);
 }
 
+/**
+ * @function setFD
+ * @brief Assegna,non appena possibile,un fd ad un utente che lo richiede.
+ * @utente utente che richiede l'fd
+ * @fd fd richiesto
+ * @return 0 in caso di successo,altrimenti -1 e setta errno.
+ */
+static int setFD(utente_t *utente,unsigned int fd)
+{
+    int rc;
+
+    //prendo lock sulla posizione in base all'fd
+    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
+
+    //errore lock
+    error_handler_3(rc,-1);
+
+    //fin quando ci sono altri client con quell'fd,attendo che si disconnettano
+    while(fd_utenti[fd].count != 0)
+    {
+        rc = pthread_cond_wait(&fd_utenti[fd].cond,&fd_utenti[fd].mtx);
+
+        //errore wait
+        if(rc)
+        {
+            //rilascio lock fd utenti
+            pthread_mutex_unlock(&fd_utenti[fd].mtx);
+            errno = rc;
+            return -1;
+        }
+    }
+
+    //a questo punto posso inserire il mio fd
+    utente->fd = fd;
+    //incremento la posizione di quell'fd in quanto utilizzato ora da questo utente
+    ++fd_utenti[fd].count;
+
+    //rilascio lock fd utenti
+    pthread_mutex_unlock(&fd_utenti[fd].mtx);
+
+    return 0;
+}
+
+/**
+ * @function setFD
+ * @brief Rimuove un fd da un utente che non ne fa piu utilizzo
+ * @utente utente che richiede la Rimozione
+ * @fd fd da rimuovere
+ * @return 0 in caso di successo,altrimenti -1 e setta errno.
+ */
+static int unsetFD(unsigned int fd)
+{
+    int rc;
+
+    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
+
+    //errore lock
+    error_handler_3(rc,-1);
+
+    //decremento il contatore di quell'fd in quanto non e' piu' utilizzato da questo utente
+    --fd_utenti[fd].count;
+
+    //sveglio eventuale utente in attesa del fd
+    rc = pthread_cond_signal(&fd_utenti[fd].cond);
+
+    if(rc)
+    {
+        //rilascio lock fd utenti
+        pthread_mutex_unlock(&fd_utenti[fd].mtx);
+        errno = rc;
+        return -1;
+    }
+
+    //rilascio lock fd utenti
+    pthread_mutex_unlock(&fd_utenti[fd].mtx);
+
+    return 0;
+}
+
+/**
+ * @function add_name
+ * @brief Aggiunge il nome dell'utente all'interno del buffer
+ * @param buffer puntatore al buffer
+ * @param buffer_size puntatore alla size attuale allocata dal buffer
+ * @param new_size puntatore alla nuova size del buffer,dopo aver inserito il nome
+ * @param name nickname da inserire nel buffer
+ * @return puntatore alla prossima posizione libera per inserire nel buffer,altrimenti NULL.
+ */
+static char *add_name(char buffer[],size_t *buffer_size,int *new_size,const char name[])
+{
+    int i = 0; //per scorrere stringhe e contare numero di byte scritti
+
+    //finche non arrivo all'ultima lettera del nickname, ed ho spazio nel buffer
+    while(name[i] != '\0' && *buffer_size > 0)
+    {
+        //inserisco lettera
+        buffer[i] = name[i];
+
+        //aggiorno indice per scorrere il nome
+        i++;
+
+        //decremento dimensione del buffer
+        --*buffer_size;
+    }
+
+    //se non ho piu spazio nel buffer
+    if(*buffer_size == 0)
+        return NULL;
+    else
+    {
+        //metto carattere terminatore
+        buffer[i] = '\0';
+
+        //decremento dimensione del buffer
+        --*buffer_size;
+
+        //aggiorno indici
+        ++i;
+    }
+
+    //aggiungo spazi dopo il nick,per occupare tutti i byte
+    while( ( (MAX_NAME_LENGTH + 1 - (i)) > 0 ) && *buffer_size > 0)
+    {
+        buffer[i] = ' ';
+
+        ++i;
+
+        --*buffer_size;
+    }
+
+    //se non ho piu' spazio nel buffer,e non ho finito di mettere gli spazi
+    if(*buffer_size == 0 && (MAX_NAME_LENGTH + 1 - (i)) != 0 )
+        return NULL;
+
+    //altrimenti aggiorno la nuova size del buffer..
+    *new_size += i;
+
+    //ritorno la posizione attuale nel buffer,per poter inserire nuovamente
+    return (buffer + i);
+}
+
+/* FUNZIONI INTERFACCIA */
 utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int hist_size,struct statistics *statistics,pthread_mutex_t *mtx_stat,char *dirpath)
 {
     int rc;
@@ -255,7 +419,6 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
     return utenti;
 }
 
-
 utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
 {
     int rc;
@@ -285,11 +448,7 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
     rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
 
     //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return NULL;
-    }
+    error_handler_3(rc,NULL);
 
     //fin quando trovo utenti inizializzati
     while(Utenti->elenco[hashIndex].isInit)
@@ -324,11 +483,7 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
         rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
 
         //errore lock
-        if(rc)
-        {
-            errno = rc;
-            return NULL;
-        }
+        error_handler_3(rc,NULL);
     }
 
     //rilascio lock sull'utente su cui mi trovo
@@ -336,79 +491,6 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
 
     //utente non registrato
     return NULL;
-}
-
-static int setFD(utente_t *utente,unsigned int fd)
-{
-    int rc;
-
-    //prendo lock sulla posizione in base all'fd
-    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
-
-    //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
-
-    //fin quando ci sono altri client con quell'fd,attendo che si disconnettano
-    while(fd_utenti[fd].count != 0)
-    {
-        rc = pthread_cond_wait(&fd_utenti[fd].cond,&fd_utenti[fd].mtx);
-
-        //errore wait
-        if(rc)
-        {
-            //rilascio lock fd utenti
-            pthread_mutex_unlock(&fd_utenti[fd].mtx);
-            errno = rc;
-            return -1;
-        }
-    }
-
-    //a questo punto posso inserire il mio fd
-    utente->fd = fd;
-    //incremento la posizione di quell'fd in quanto utilizzato ora da questo utente
-    ++fd_utenti[fd].count;
-
-    //rilascio lock fd utenti
-    pthread_mutex_unlock(&fd_utenti[fd].mtx);
-
-    return 0;
-}
-
-static int unsetFD(unsigned int fd)
-{
-    int rc;
-
-    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
-
-    //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
-
-    //decremento il contatore di quell'fd in quanto non e' piu' utilizzato da questo utente
-    --fd_utenti[fd].count;
-
-    //sveglio eventuale utente in attesa del fd
-    rc = pthread_cond_signal(&fd_utenti[fd].cond);
-
-    if(rc)
-    {
-        //rilascio lock fd utenti
-        pthread_mutex_unlock(&fd_utenti[fd].mtx);
-        errno = rc;
-        return -1;
-    }
-
-    //rilascio lock fd utenti
-    pthread_mutex_unlock(&fd_utenti[fd].mtx);
-
-    return 0;
 }
 
 int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
@@ -432,11 +514,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
+    error_handler_3(rc,-1);
 
     //controllo che non abbiamo raggiunto il massimo degli utenti registrabili
     if(Utenti->stat->nusers == MAX_USERS)
@@ -473,11 +551,8 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     //prendo lock utente che vado a controlare
     rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
 
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
+    //errore lock
+    error_handler_3(rc,-1);
 
     //finche trovo posizioni occupate,avanzo con l'indice
     while(Utenti->elenco[hashIndex].isInit)
@@ -493,11 +568,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
         rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
 
         //errore lock
-        if(rc)
-        {
-            errno = rc;
-            return -1;
-        }
+        error_handler_3(rc,-1);
     }
 
     //posizione trovata, inserisco info relativo all'utente
@@ -524,7 +595,16 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     //creo la directory personale dell'utente:
 
     //creo il path..
-    snprintf(Utenti->elenco[hashIndex].personal_dir,MAX_CLIENT_DIR_LENGHT,"%s/%s",Utenti->media_dir,name);
+    rc = snprintf(Utenti->elenco[hashIndex].personal_dir,MAX_CLIENT_DIR_LENGHT,"%s/%s",Utenti->media_dir,name);
+
+    //errore snprintf
+    if(rc < 0)
+    {
+        //rilascio lock utente inserito
+        pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
+        errno = EIO;
+        return -1;
+    }
 
     //..e la cartella
     rc = mkdir(Utenti->elenco[hashIndex].personal_dir,0777);
@@ -539,19 +619,11 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     //rilascio lock utente inserito
     pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
 
-    //errore creazione cartella utente
-    if(rc == -1)
-        return -1;
-
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
+    error_handler_3(rc,-1);
 
     //incremento numero utenti registrati e utenti online
     ++(Utenti->stat->nusers);
@@ -602,20 +674,13 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
     pthread_mutex_unlock(&utente->mtx);
 
     //errore eliminazione directory
-    if(rc == -1)
-    {
-        return -1;
-    }
+    error_handler_1(rc,-1,-1);
 
     //lock statistiche utenti
     rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
+    error_handler_3(rc,-1);
 
     //decremento utenti registrati e utenti online
     --(Utenti->stat->nusers);
@@ -663,11 +728,7 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
+    error_handler_3(rc,-1);
 
     //incremento numero utenti online
     ++(Utenti->stat->nonline);
@@ -715,11 +776,7 @@ int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti)
     rc = pthread_mutex_lock(Utenti->mtx_stat);
 
     //errore lock
-    if(rc)
-    {
-        errno = rc;
-        return -1;
-    }
+    error_handler_3(rc,-1);
 
     --(Utenti->stat->nonline);
 
@@ -775,68 +832,6 @@ void mostraUtenti(utenti_registrati_t *Utenti)
 
 }
 
-/**
- * @function add_name
- * @brief Aggiunge il nome dell'utente all'interno del buffer
- * @param buffer puntatore al buffer
- * @param buffer_size puntatore alla size attuale allocata dal buffer
- * @param new_size puntatore alla nuova size del buffer,dopo aver inserito il nome
- * @param name nickname da inserire nel buffer
- * @return puntatore alla prossima posizione libera per inserire nel buffer,altrimenti NULL.
- */
-static char *add_name(char buffer[],size_t *buffer_size,int *new_size,const char name[])
-{
-    int i = 0; //per scorrere stringhe e contare numero di byte scritti
-
-    //finche non arrivo all'ultima lettera del nickname, ed ho spazio nel buffer
-    while(name[i] != '\0' && *buffer_size > 0)
-    {
-        //inserisco lettera
-        buffer[i] = name[i];
-
-        //aggiorno indice per scorrere il nome
-        i++;
-
-        //decremento dimensione del buffer
-        --*buffer_size;
-    }
-
-    //se non ho piu spazio nel buffer
-    if(*buffer_size == 0)
-        return NULL;
-    else
-    {
-        //metto carattere terminatore
-        buffer[i] = '\0';
-
-        //decremento dimensione del buffer
-        --*buffer_size;
-
-        //aggiorno indici
-        ++i;
-    }
-
-    //aggiungo spazi dopo il nick,per occupare tutti i byte
-    while( ( (MAX_NAME_LENGTH + 1 - (i)) > 0 ) && *buffer_size > 0)
-    {
-        buffer[i] = ' ';
-
-        ++i;
-
-        --*buffer_size;
-    }
-
-    //se non ho piu' spazio nel buffer,e non ho finito di mettere gli spazi
-    if(*buffer_size == 0 && (MAX_NAME_LENGTH + 1 - (i)) != 0 )
-        return NULL;
-
-    //altrimenti aggiorno la nuova size del buffer..
-    *new_size += i;
-
-    //ritorno la posizione attuale nel buffer,per poter inserire nuovamente
-    return (buffer + i);
-}
-
 int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registrati_t *Utenti)
 {
     int rc;
@@ -857,11 +852,7 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
         rc = pthread_mutex_lock(&Utenti->elenco[i].mtx);
 
         //errore lock
-        if(rc)
-        {
-            errno = rc;
-            return -1;
-        }
+        error_handler_3(rc,-1);
 
         //posizione non vuota
         if(Utenti->elenco[i].isInit)
@@ -891,7 +882,6 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
     return 0;
 }
 
-
 int eliminaElenco(utenti_registrati_t *Utenti)
 {
     int rc;
@@ -902,7 +892,7 @@ int eliminaElenco(utenti_registrati_t *Utenti)
         return -1;
     }
 
-    //distrutto tutti i mutex relativi agli utente
+    //dealloco tutti i mutex relativi agli utente
     for (size_t i = 0; i < MAX_USERS; i++)
     {
         rc = pthread_mutex_destroy(&Utenti->elenco[i].mtx);

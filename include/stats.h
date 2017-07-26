@@ -1,3 +1,10 @@
+/**
+ * @file  stats.h
+ * @brief Header file delle statistiche relative al server chatty
+ * @author Gionatha Sturba 531274
+ * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+ * originale dell'autore
+ */
 #if !defined(SERVER_STATS_)
 #define SERVER_STATS_
 
@@ -5,6 +12,7 @@
 #include<time.h>
 #include<pthread.h>
 #include<errno.h>
+#include"utils.h"
 
 struct statistics {
     unsigned long nusers;                       // n. di utenti registrati
@@ -15,9 +23,6 @@ struct statistics {
     unsigned long nfilenotdelivered;            // n. di file non ancora consegnati
     unsigned long nerrors;                      // n. di messaggi di errore
 };
-
-/* aggiungere qui altre funzioni di utilita' per le statistiche */
-
 
 /**
  * @function printStats
@@ -37,8 +42,7 @@ static inline int printStats(char* fout_path)
     FILE *file = fopen(fout_path,"w");
 
     //errore creazione file stati
-    if(file == NULL)
-        return -1;
+    error_handler_1(file,NULL,-1);
 
     rc = pthread_mutex_lock(&mtx_chatty_stat);
 
@@ -60,7 +64,7 @@ static inline int printStats(char* fout_path)
 		chattyStats.nfilenotdelivered,
 		chattyStats.nerrors
     ) < 0)
-    {//errore scritturapo
+    {//errore scrittura
         fclose(file);
         pthread_mutex_unlock(&mtx_chatty_stat);
         return -1;

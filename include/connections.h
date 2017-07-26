@@ -16,12 +16,7 @@
 #ifndef CONNECTIONS_H_
 #define CONNECTIONS_H_
 
-#if !defined(UNIX_PATH_MAX)
-#endif
-
 #include"message.h"
-
-
 
 /**
  * @function openConnection
@@ -108,10 +103,5 @@ int sendData(long fd, message_data_t *msg);
  * @return 0, altrimenti -1 e setta errno
  */
 int sendHeader(long fd,message_hdr_t *hdr);
-
-
-
-/* da completare da parte dello studente con eventuali altri metodi di interfaccia */
-
 
 #endif /* CONNECTIONS_H_ */

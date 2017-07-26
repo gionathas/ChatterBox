@@ -41,22 +41,33 @@
 /* Secondi da attendere tra un retry e il successivo */
 #define MAX_SLEEPING 3
 
-
-//Salva la configurazione attuale del server chatty
+/**
+ * @struct server_config_t
+ * @brief Struttura per la configurazione del server chatty
+ * @var serverpath path socket di chatty
+ * @var max_connection numero max connessioni ammesse
+ * @var thread numero di thread del pool del server
+ * @var max_msg_size dimensione massima di un messaggio testuale
+ * @var max_file_size dimensione massima di un file
+ * @var max_hist_msgs numero massimo di messaggi che vengono salvati per ogni utente
+ * @var dirname path della directory del server chatty
+ * @var stat_file_name path del file delle statistiche del server
+ */
 typedef struct{
-    char serverpath[UNIX_PATH_MAX];
+    char serverpath[UNIX_PATH_MAX + 1];
     unsigned int max_connection;
     unsigned int threads;
     size_t max_msg_size;
     size_t max_file_size;
     unsigned int max_hist_msgs;
-    char dirname[MAX_SERVER_DIR_LENGTH];
-    char stat_file_name[UNIX_PATH_MAX];
+    char dirname[MAX_SERVER_DIR_LENGTH + 1];
+    char stat_file_name[UNIX_PATH_MAX + 1];
 }server_config_t;
 
 // to avoid warnings like "ISO C forbids an empty translation unit"x
 typedef int make_iso_compilers_happy;
 
+/* Stampa la configurazione attuale del server */
 static inline void print_config(server_config_t conf)
 {
     printf("ServerPath = %s\n",conf.serverpath);

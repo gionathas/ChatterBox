@@ -14,8 +14,14 @@
 #include<sys/un.h>
 #include"connections.h"
 #include"config.h"
+#include"utils.h"
 
-//1 connessione chiusa,0 ancora aperta oppure errore
+/**
+ * @function connection_closed
+ * @brief Controlla se la connessione con un client risulta essere terminata
+ * @parama read_result valore ritornato dalla read
+ * @return 1 connessione chiusa,0 connessione aperta.
+ */
 static inline int connection_closed(int read_result)
 {
     //caso in cui la connessione con il client e' terminata
@@ -51,8 +57,7 @@ int openConnection(char* path, unsigned int ntimes, unsigned int secs)
     fd = socket(AF_UNIX,SOCK_STREAM,0);
 
     //errore socket
-    if(fd == -1)
-        return -1;
+    error_handler_1(fd,-1,-1);
 
     //tento la connessine al server
     while(connect(fd,(struct sockaddr *)&sa,sizeof(sa)) == -1 && retry <= ntimes)
@@ -97,7 +102,6 @@ int readHeader(long connfd, message_hdr_t *hdr)
         return 0;
     //ritorno esito della read
     else
-        //ritorno esito read
         return rc;
 }
 
@@ -121,7 +125,7 @@ int readData(long fd, message_data_t *data)
         return 0;
     }
     else{
-        //errore connessione
+        //errore nella read
         if(errno != 0)
             return -1;
     }
@@ -133,18 +137,17 @@ int readData(long fd, message_data_t *data)
     data->buf = malloc(len);
 
     //allocazione andata male
-    if(data->buf == NULL)
-        return -1;
+    error_handler_1(data->buf,NULL,-1);
 
     //ora posso leggere il buffer del messaggio
     rc = read(fd,data->buf,len);
 
-    //controllo connessione chiusa
+    //controllo connessione
     if(connection_closed(rc))
         return 0;
-
-    //ritorno esito ultima read
-    return rc;
+    //altrimenti ritorno esito della read
+    else
+        return rc;
 }
 
 int readMsg(long fd, message_t *msg)
@@ -165,7 +168,7 @@ int readMsg(long fd, message_t *msg)
         printf("header :%d\n",rc);
     #endif
 
-    //controllo connessione chiusa oppure errore
+    //controllo connessione chiusa oppure errore nel readHeader
     if(rc <= 0)
     {
         return rc;
@@ -188,7 +191,6 @@ int readMsg(long fd, message_t *msg)
     byte_read += rc;
 
     return byte_read;
-
 }
 
 int sendData(long fd, message_data_t *msg)
@@ -205,15 +207,14 @@ int sendData(long fd, message_data_t *msg)
     //mando prima header,che contiene la lunghezza del buffer
     rc = write(fd,&msg->hdr,sizeof(message_data_hdr_t));
 
-    //esito
-    if(rc < 0)
-        return -1;
+    //esito prima write
+    error_handler_1(rc,-1,-1);
 
     //poi mando il buffer
     rc = write(fd,msg->buf,msg->hdr.len * sizeof(char));
 
-    if(rc < 0)
-        return -1;
+    //esito seconda write
+    error_handler_1(rc,-1,-1);
 
     //tutto andato ok
     return 0;
@@ -236,12 +237,11 @@ int sendHeader(long fd,message_hdr_t *hdr)
     //mando header
     rc =  write(fd,hdr,sizeof(message_hdr_t));
 
-    //errore write
-    if(rc == -1 || (rc == 0 && errno != 0))
-        return -1;
-    else
-        return 0;
+    //esito write
+    error_handler_1(rc,-1,-1);
 
+    //tutto ok
+    return 0;
 }
 
 int sendRequest(long fd, message_t *msg)
@@ -257,12 +257,11 @@ int sendRequest(long fd, message_t *msg)
 
     rc = sendHeader(fd,&msg->hdr);
 
-    if(rc == -1)
-        return -1;
+    //controllo esito sendHeader
+    error_handler_1(rc,-1,-1);
 
     //mando data del messaggio
     rc = sendData(fd,&msg->data);
-
 
     return rc;
 }

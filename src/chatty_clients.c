@@ -16,12 +16,9 @@
 #include"ops.h"
 #include"utenti.h"
 #include"messaggi_utenti.h"
+#include"utils.h"
 
 #define DEBUG
-
-#define CHATTY_THREAD_ERR_HANDLER(err,val,ret)         \
-    do{if( (err) == (val)){return (ret);} }while(0)
-
 
 /* FUNZIONI INTERFACCIA */
 int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
@@ -63,7 +60,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             }
 
             //errore operazione precedente
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -95,7 +92,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             }
 
             //errore operazione precedente
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -127,7 +124,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             }
 
             //errore operazione precedente
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -155,7 +152,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             }
 
             //controllo esito messaggio inviato
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -164,7 +161,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,TEXT_ID,utenti);
 
             //in caso di errore
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -173,8 +170,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             rc = inviaMessaggioUtentiRegistrati(sender_name,message->data.buf,message->data.hdr.len,utenti);
 
             //in caso di errore
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
-
+            error_handler_1(rc,-1,-1);
             break;
 
         case POSTFILE_OP:
@@ -182,7 +178,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             rc = inviaMessaggioUtente(sender_name,receiver_name,message->data.buf,message->data.hdr.len,FILE_ID,utenti);
 
             //in caso di errore
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -191,7 +187,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             rc = getFile(sender_name,message->data.buf,utenti);
 
             //in caso di errore
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -200,7 +196,7 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             rc = inviaMessaggiRemoti(sender_name,utenti);
 
             //in caso di errore
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             break;
 
@@ -210,8 +206,11 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             rc = send_fail_message(fd,OP_FAIL,utenti);
 
             //controllo esito messaggio inviato
-            CHATTY_THREAD_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
     }
+
+    //libero eventuale memoria allocata nel buffer del messaggio per la lettura
+    free(message->data.buf);
 
     #ifdef DEBUG
         mostraUtenti(utenti);

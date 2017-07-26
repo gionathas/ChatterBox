@@ -13,11 +13,16 @@
 #include<errno.h>
 #include"chatty_task.h"
 #include"config.h"
+#include"utils.h"
 
-#define PARSER_ERR_HANDLER(err,val,ret)         \
-    do{if( (err) == (val)){return (ret);} }while(0)
-
-//bisogna passargli l'indirizzo del puntatore,altrimenti non si aggiorna per il prossimo read field
+/**
+ * @function read_field
+ * @brief legge un campo all'interno della riga e lo salva dentro field
+ * @param field buffer in cui salvare il campo letto
+ * @param buffer locazione di memoria del puntatore alla riga letta
+ * @note si passa **buffer perche' bisogna aggiornare la riga che stiamo leggendo
+ * @return 0 campo letto con successo,altrimenti -1 e setta errno
+ */
 static int read_field(char *field,char **buffer)
 {
     int count = 0;
@@ -43,6 +48,12 @@ static int read_field(char *field,char **buffer)
     return 0;
 }
 
+/**
+ * @function check_value
+ * @brief Legge un valore numerico da una campo
+ * @param field stringa del campo da cui si Legge
+ * @return valore letto,altrimenti -1 e setta errno.
+ */
 static int check_value(char *field)
 {
     int val;
@@ -60,6 +71,14 @@ static int check_value(char *field)
     return val;
 }
 
+/**
+ * @function analyze_field
+ * @brief Analizza i campi relativi ad un assegnamento e aggiorna la configurazioe del server
+ * @param sx_field campo sinistro assegnamento
+ * @param dx_field campo destro assegnamento
+ * @param config puntatore alla struttura relativa alla configurazioe del server
+ * @return 0 assegnamento corretto,altrimenti -1 e setta errno.
+ */
 static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
 {
     int check; //per controllare valori aritmetici
@@ -74,7 +93,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         check = check_value(dx_field);
 
         //errore nel controllo del valore
-        PARSER_ERR_HANDLER(check,-1,-1);
+        error_handler_1(check,-1,-1);
 
         config->max_connection = check;
     }
@@ -83,7 +102,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         check = check_value(dx_field);
 
         //errore nel controllo del valore
-        PARSER_ERR_HANDLER(check,-1,-1);
+        error_handler_1(check,-1,-1);
 
         config->threads = check;
     }
@@ -92,7 +111,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         check = check_value(dx_field);
 
         //errore nel controllo del valore
-        PARSER_ERR_HANDLER(check,-1,-1);
+        error_handler_1(check,-1,-1);
 
         //numero di byte
         config->max_msg_size = check * sizeof(char);
@@ -102,7 +121,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         check = check_value(dx_field);
 
         //errore nel controllo del valore
-        PARSER_ERR_HANDLER(check,-1,-1);
+        error_handler_1(check,-1,-1);
 
         size_t kb = 1024 * sizeof(char);
 
@@ -114,7 +133,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
         check = check_value(dx_field);
 
         //errore nel controllo del valore
-        PARSER_ERR_HANDLER(check,-1,-1);
+        error_handler_1(check,-1,-1);
 
         config->max_hist_msgs = check;
     }
@@ -135,7 +154,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
  int chatty_parser(char *pathfile,server_config_t *config)
  {
      FILE *config_file; //file di configurazione
-     char buffer[MAX_SIZE_LINE];//buffer per salvare le righe lette nel file
+     char buffer[MAX_SIZE_LINE + 1];//buffer per salvare le righe lette nel file
      char *buff,*sx,*dx; //puntatori di supporto all'analisi delle stringhe
      int rc; //gestione errori
 
@@ -150,7 +169,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
      config_file = fopen(pathfile,"r");
 
      //errore apertura
-     PARSER_ERR_HANDLER(config_file,NULL,-1);
+     error_handler_1(config_file,NULL,-1);
 
      //leggo fin quando non arrivo alla fine del file
      while(fgets(buffer,MAX_SIZE_LINE,config_file) != NULL)
@@ -183,7 +202,7 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
             rc = read_field(sx,&buff);
 
             //errore lettura campo
-            PARSER_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             //finito di leggere il campo sinistro,vado avanti fin quando non arrivo al campo destro
 
@@ -195,13 +214,13 @@ static int analyze_field(char *sx_field,char *dx_field,server_config_t *config)
             rc = read_field(dx,&buff);
 
             //errore lettura campo
-            PARSER_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
             //a questo punto analizzo i due campi
             rc = analyze_field(sx,dx,config);
 
             //errore nell'analisi dei campi
-            PARSER_ERR_HANDLER(rc,-1,-1);
+            error_handler_1(rc,-1,-1);
 
         }
      }
