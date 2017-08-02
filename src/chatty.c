@@ -72,7 +72,7 @@ static int server_disconnect_client(int fd,void *utenti)
 }
 
 /* Distruzione strutture utilizzate da chatty */
-static int chatty_close()
+static int chatty_close(char *stat_file_path)
 {
     int rc;
 
@@ -188,7 +188,7 @@ int main(int argc, char *argv[])
     }
 
     //Se il server e' terminato correttamente,termino normalmente
-    rc = chatty_close();
+    rc = chatty_close(config.stat_file_name);
 
     //chiusura fallita
     if(rc == -1)
@@ -210,6 +210,9 @@ main_error2:
 main_error1:
     //distruggo mutex statistiche
     pthread_mutex_destroy(&mtx_chatty_stat);
+
+    //elimino file delle statistiche
+    unlink(config.stat_file_name);
 
     //stampo errore
     errno = curr_error;

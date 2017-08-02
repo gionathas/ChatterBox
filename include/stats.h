@@ -5,8 +5,8 @@
  * Si dichiara che il contenuto di questo file e' in ogni sua parte opera
  * originale dell'autore
  */
-#if !defined(SERVER_STATS_)
-#define SERVER_STATS_
+#ifndef SERVER_STATS_H
+#define SERVER_STATS_H
 
 #include<stdio.h>
 #include<time.h>

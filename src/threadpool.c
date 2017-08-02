@@ -24,7 +24,7 @@ static const q_mode_t task_scheduler = FIFO;
  * @note non si usa un mutex per proteggere questa variabile perche' una volta settata,
  * la variabile verra' accessa solo in lettura.
 */
-static int thread_error = 0;
+static int threadpool_thread_error = 0;
 
 /* FUNZIONI DI SUPPORTO */
 
@@ -336,7 +336,7 @@ static int join_threads(threadpool_t *tp)
     }
 
     //se thread_error e' uguale a 0,nessun thread e' fallito,altrimenti ritorna il codice dell'errore
-    return thread_error;
+    return threadpool_thread_error;
 }
 
 static int free_task_queue(queue_task_t *Q)
@@ -564,7 +564,7 @@ immediate_termination:
     //Mando un segnale di terminazione immediata
     kill(getpid(),SIGTERM);
     //setto la var thread_error per propagare codice di ritorno dell'errore con cui sono fallito
-    thread_error = rc;
+    threadpool_thread_error = rc;
     //termino indicando fallimento
     pthread_exit((void*)EXIT_FAILURE);
 }

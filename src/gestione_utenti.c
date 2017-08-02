@@ -21,6 +21,8 @@
 #include"config.h"
 #include"utils.h"
 
+#define DEBUG
+
 /* Size dell'array che contiene gli fd degli utenti */
 #define FD_UTENTI_LEN (MAX_USERS) + 4
 
@@ -453,6 +455,8 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
     //fin quando trovo utenti inizializzati
     while(Utenti->elenco[hashIndex].isInit)
     {
+        int i = 2;
+
         //se i nick sono uguali,abbiamo trovato l'utente
         if(strcmp(Utenti->elenco[hashIndex].nickname,name) == 0)
         {
@@ -479,8 +483,11 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
             break;
         }
 
+
         //prendo lock per prossimo utente
         rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
+
+        i++;
 
         //errore lock
         error_handler_3(rc,NULL);
@@ -548,7 +555,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     //hash per la ricerca
     int hashIndex = hash(name,MAX_USERS);
 
-    //prendo lock utente che vado a controlare
+    //prendo lock sulla posizione ottenuta dall'hashing
     rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
 
     //errore lock
@@ -576,22 +583,25 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     Utenti->elenco[hashIndex].isInit = 1;
     Utenti->elenco[hashIndex].isOnline = 1;
     Utenti->elenco[hashIndex].n_remote_message = 0;
+    Utenti->elenco[hashIndex].fd = fd;
 
     /*
        Per inserire l'fd relativo a questo utente devo assicurarmi che nessun altro utente
        stia utilizzando lo stesso fd. Questo puo' accadere quando un utente si disconnette e un altro
        si riconnette con lo stesso fd
-    */
-    rc = setFD(&Utenti->elenco[hashIndex],fd);
 
-    //controllo esito setFD
-    if(rc == -1)
-    {
-        //rilascio lock utente inserito
-        pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
-        return -1;
-    }
 
+       rc = setFD(&Utenti->elenco[hashIndex],fd);
+
+       //controllo esito setFD
+       if(rc == -1)
+       {
+           //rilascio lock utente inserito
+           pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
+           return -1;
+       }
+
+       */
     //creo la directory personale dell'utente:
 
     //creo il path..
@@ -657,18 +667,10 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
     utente->isInit = 0;
 
     //rimuovo l'fd da lui utilizzato per connettersi
-    rc = unsetFD(utente->fd);
+    //rc = unsetFD(utente->fd);
 
     //setto un fd invalido
     utente->fd = 0;
-
-    //errore unsetFD
-    if(rc == -1)
-    {
-        //rilascio lock utente
-        pthread_mutex_unlock(&utente->mtx);
-        return -1;
-    }
 
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
@@ -711,7 +713,9 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
 
     //setto info su utente
     utente->isOnline = 1;
+    utente->fd = fd;
 
+    /*
     rc = setFD(utente,fd);
 
     if(rc == -1)
@@ -721,6 +725,7 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
         return -1;
     }
 
+    */
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
 
@@ -754,7 +759,7 @@ int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti)
             //fd combacia
             if(utente->fd == fd)
             {
-                unsetFD(fd);
+                //unsetFD(fd);
                 utente->isOnline = 0;
                 utente->fd = 0;
                 find = 1;

@@ -1,4 +1,4 @@
-# -------------------------------------------------------------- 
+# --------------------------------------------------------------
 #
 # File di configurazione del server chatterbox
 #
@@ -12,8 +12,8 @@
 #             DirName      = /tmp/chatty_<numero-di-matricola>
 #             StatFileName = /tmp/chatty_stats_<numero-di-matricola>.txt
 
-# directory dove memorizzare i files da inviare agli utenti 
-DirName          = /tmp/chatty 
+# directory dove memorizzare i files da inviare agli utenti
+DirName          = /tmp/chatty
 
 # dimensione massima di un file accettato dal server (kilobytes)
 MaxFileSize      = 50
@@ -21,7 +21,7 @@ MaxFileSize      = 50
 # numero massimo di connessioni pendenti
 MaxConnections	 = 4
 
-# numero di thread nel pool 
+# numero di thread nel pool
 ThreadsInPool    = 4
 
 # dimensione massima di un messaggio testuale (numero di caratteri)
@@ -39,6 +39,3 @@ UnixPath         = /tmp/chatty_socket
 # --------------------------------------------------------------
 
 # aggiungere altre opzioni necessarie da qui in poi
-
-
- 

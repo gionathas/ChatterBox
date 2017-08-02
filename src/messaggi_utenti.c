@@ -22,6 +22,7 @@
 #include"messaggi_utenti.h"
 
 /*FUNZIONI DI SUPPORTO*/
+#define DEBUG
 
 //per far funzionare una chiamata di funzione in inviaMessaggiRemoti
 //@see send_ok_message
@@ -176,11 +177,6 @@ static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
     size_t buf_len;
     size_t dir_path_len = strlen(dir_path);
     FILE *searched_file = NULL;
-    int i = 0;
-
-    //elimino eventuale ./
-    while(filename[i] == '.' || filename[i] == '/')
-        ++filename;
 
     //apro directory
     DIR *dir = opendir(dir_path);
@@ -243,6 +239,22 @@ static FILE *search_file(char *filename,char *dir_path,size_t *file_size)
     return searched_file;
 }
 
+static char* extract_filename(char *path)
+{
+    while( (*path) == '.' && (*path) != '\0')
+        path++;
+
+    char *token = strtok(path,"/");
+
+    while(token != NULL)
+    {
+        path = token;
+        token = strtok(NULL,"/");
+    }
+
+    return path;
+}
+
 /**
  * @function uploadFile
  * @brief Carica un file sulla directory del server.
@@ -261,6 +273,10 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
 
     rc = readData(fd,&file_data);
 
+    #ifdef DEBUG
+        printf("%s read %d bytes\n",filename,rc);
+    #endif
+
     //errore lettura data file
     USER_ERR_HANDLER(rc,-1,-1);
 
@@ -270,6 +286,9 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
         free(file_data.buf);
         return 1;
     }
+
+    //estraggo nome reale del file,eliminando il path delle cartelle
+    filename = extract_filename(filename);
 
     //creo path del file sulla directory del server
     rc = snprintf(pathfile,UNIX_PATH_MAX,"%s/%s",utenti->media_dir,filename);
@@ -294,7 +313,6 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
 
     rc = fwrite(file_data.buf,1,file_data.hdr.len,file);
 
-
     //libero memoria dal buffer
     free(file_data.buf);
 
@@ -306,8 +324,14 @@ static int uploadFile(int fd,char *filename,utenti_registrati_t *utenti)
         return -1;
     }
 
+    #ifdef DEBUG_LOCK
+        printf("UploadFIle pre lock utenti->mtx_stat\n");
+    #endif
     //incremento numeri di file non ancora consegnati
     rc = pthread_mutex_lock(utenti->mtx_stat);
+    #ifdef DEBUG_LOCK
+        printf("UploadFIle post lock utenti->mtx_stat\n");
+    #endif
 
     //errore lock
     if(rc)
@@ -396,8 +420,16 @@ static int send_message(utente_t *receiver,message_t *message,utenti_registrati_
 
         fclose(file_msg);
 
+        #ifdef DEBUG_LOCK
+            fflush(stdout);
+            printf("send_message 2 pre lock utenti->mtx_stat\n");
+        #endif
         //nessun errore riscontrato,incremento numero di messaggi non ancora consegnati
         rc = pthread_mutex_lock(utenti->mtx_stat);
+        #ifdef DEBUG_LOCK
+            fflush(stdout);
+            printf("send_message 2 post lock utenti->mtx_stat\n");
+        #endif
 
         //errore lock
         if(rc)
@@ -427,6 +459,9 @@ static int send_message(utente_t *receiver,message_t *message,utenti_registrati_
  */
 static int sendDataRemoteFile(utente_t *utente,utenti_registrati_t *utenti)
 {
+    #ifdef DEBUG
+        printf("inizio sendDataRemoteFile\n" );
+    #endif
     char *file_path;
     size_t file_path_size;
     int rc;
@@ -604,6 +639,10 @@ static int sendDataRemoteFile(utente_t *utente,utenti_registrati_t *utenti)
     //chiudo cartella dell'utente
     closedir(dir);
 
+    #ifdef DEBUG
+        printf("inizio sendDataRemoteFile\n" );
+    #endif
+
     //se si sono riscontrati errori
     if(errno != 0)
         return -1;
@@ -708,7 +747,7 @@ int sendUserOnline(int fd,utenti_registrati_t *utenti)
     //se sono fallito per altro
     USER_ERR_HANDLER(rc,-1,-1);
 
-    //mando messaggio di ok,con la stringa degli utenti online
+    //mando messaggio di ok,con la strinyga degli utenti online
     rc = send_ok_message(fd,user_online,new_size);
 
     return rc;
@@ -716,6 +755,9 @@ int sendUserOnline(int fd,utenti_registrati_t *utenti)
 
 int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t size_msg,messaggio_id_t type,utenti_registrati_t *utenti)
 {
+    #ifdef DEBUG
+        printf("inizio inviaMessaggioUtente\n" );
+    #endif
     int rc;
 
     //controllo sender sia registrato ed online
@@ -727,6 +769,9 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
            oppure si sta cercando di autoinviarsi un messaggio */
         if(errno == EPERM || errno == ENETDOWN || errno == 0 || strcmp(sender_name,receiver_name) == 0)
         {
+            #ifdef DEBUG
+                printf("IMU: 1 fail message\n");
+            #endif
             rc = send_fail_message(sender->fd,OP_FAIL,utenti);
         }
         //errore checkSender
@@ -737,12 +782,16 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
     //controllo dimensione messaggio,se esso e' un messaggio testuale
     else if(type == TEXT_ID && size_msg > utenti->max_msg_size)
     {
+        #ifdef DEBUG
+            printf("IMU: 2 fail message\n");
+        #endif
         //invio errore di messaggio testuale troppo grande
         rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
         pthread_mutex_unlock(&sender->mtx);
     }
     //altrimenti sender valido e messaggio valido
     else{
+        pthread_mutex_unlock(&sender->mtx);
 
         //controllo stato del receiver: Deve essere solo registrato
         utente_t *receiver = cercaUtente(receiver_name,utenti,NULL);
@@ -753,6 +802,9 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
             //receiver non registrato oppure nome receiver invalido
             if(errno == 0 || errno == EPERM)
             {
+                #ifdef DEBUG
+                    printf("IMU: 3 fail message\n");
+                #endif
                 rc = send_fail_message(sender->fd,OP_FAIL,utenti);
             }
             //errore ricerca receiver
@@ -763,7 +815,36 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
         //receiver valido
         else
         {
-            //preparo messaggio
+            //se si tratta di un file,devo fare anche l'upload sulla directory del server
+            if(type == FILE_ID)
+            {
+                rc = uploadFile(sender->fd,msg,utenti);
+
+                //file troppo grande
+                if(rc == 1)
+                {
+                    #ifdef DEBUG
+                        printf("IMU: 4 fail message\n");
+                    #endif
+                    //invio messaggio errore file size troppo grande
+                    rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+                    pthread_mutex_unlock(&receiver->mtx);
+
+                    //errore invio  messaggio
+                    USER_ERR_HANDLER(rc,-1,-1);
+
+                    return 0;
+
+                }
+                //errrore nell'uploadFile
+                if(rc == -1)
+                {
+                    pthread_mutex_unlock(&receiver->mtx);
+                    return -1;
+                }
+            }
+
+            //preparo messaggio per il receiver
             message_t txt_message;
 
             //in base al tipo di messaggio setto l'header
@@ -785,50 +866,21 @@ int inviaMessaggioUtente(char *sender_name,char *receiver_name,char *msg,size_t 
             //errore in send_text_message
             if(rc == -1)
             {
-                //rilasciare lock del sender
-                pthread_mutex_unlock(&sender->mtx);
-
                 return -1;
-            }
-
-            //se si tratta di un file,devo fare anche l'upload sulla directory del server
-            if(type == FILE_ID)
-            {
-                rc = uploadFile(sender->fd,msg,utenti);
-
-                //file troppo grande
-                if(rc == 1)
-                {
-                    //invio messaggio errore file size troppo grande
-                    rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
-
-                    pthread_mutex_unlock(&sender->mtx);
-
-                    //errore invio  messaggio
-                    USER_ERR_HANDLER(rc,-1,-1);
-
-                    return 0;
-
-                }
-                //errrore nell'uploadFile
-                if(rc == -1)
-                {
-                    pthread_mutex_unlock(&sender->mtx);
-                    return -1;
-                }
             }
 
             //se non ci sono stati errori mando risposta al sender di OP_OK
             rc = send_ok_message(sender->fd,"",0);
-
-            //solo ora posso rilasciare lock del sender
-            pthread_mutex_unlock(&sender->mtx);
 
         }
     }
 
     //controllo esito invio messaggio
     USER_ERR_HANDLER(rc,-1,-1);
+
+    #ifdef DEBUG
+        printf("fine inviaMessaggioUtente\n" );
+    #endif
 
     return 0;
 }
@@ -846,6 +898,9 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
         //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
         if(errno == EPERM || errno == ENETDOWN || errno == 0)
         {
+            #ifdef DEBUG
+                printf("IMUR: 1 fail message\n");
+            #endif
             rc = send_fail_message(sender->fd,OP_FAIL,utenti);
         }
         //errore checkSender
@@ -856,11 +911,17 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
     //controllo dimensione messaggio
     else if(size_msg > utenti->max_msg_size)
     {
+        #ifdef DEBUG
+            printf("IMUR: 2 fail message\n");
+        #endif
         //invio errore di messaggio troppo grande
         rc = send_fail_message(sender->fd,OP_MSG_TOOLONG,utenti);
+        pthread_mutex_unlock(&sender->mtx);
     }
     else
     {
+        pthread_mutex_unlock(&sender->mtx);
+
         //preparo messaggio
         message_t txt_message;
 
@@ -895,9 +956,6 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
             //errore in send_text_message
             if(rc == -1)
             {
-                //rilascio lock del sender
-                pthread_mutex_unlock(&sender->mtx);
-
                 return -1;
             }
 
@@ -905,9 +963,6 @@ int inviaMessaggioUtentiRegistrati(char *sender_name,char *msg,size_t size_msg,u
 
         //se non ci sono stati errori mando risposta al sender di OP_OK
         rc = send_ok_message(sender->fd,"",0);
-
-        //solo ora posso rilasciare lock del sender
-        pthread_mutex_unlock(&sender->mtx);
     }
 
     //controllo esito del messaggio di risposta al sender
@@ -931,6 +986,9 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
         //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
         if(errno == EPERM || errno == ENETDOWN || errno == 0)
         {
+            #ifdef DEBUG
+                printf("getFile: 1 fail message\n");
+            #endif
             rc = send_fail_message(sender->fd,OP_FAIL,utenti);
         }
         //errore checkSender
@@ -941,6 +999,9 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
     //cerco il file ricercato dal sender e glielo invio se esiste
     else
     {
+        //estraggo il nome corretto del file
+        filename = extract_filename(filename);
+
         //cerco il file nella directory del server
         file_request = search_file(filename,utenti->media_dir,&file_size);
 
@@ -953,10 +1014,15 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
                 pthread_mutex_unlock(&sender->mtx);
                 return -1;
             }
-
             //file non esistente
             else
+            {
+                #ifdef DEBUG
+                    printf("getFile: 2 fail message\n");
+                #endif
                 rc = send_fail_message(sender->fd,OP_NO_SUCH_FILE,utenti);
+
+            }
         }
         //file trovato,lo leggo e invio la risposta al client
         else{
@@ -983,8 +1049,16 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
 
             free(tmp_file_data);
 
+            #ifdef DEBUG_LOCK
+            fflush(stdout);
+                printf("getFile pre lock stat\n");
+            #endif
             //incremento numero di file spediti dal server
             rc = pthread_mutex_lock(utenti->mtx_stat);
+            #ifdef DEBUG_LOCK
+            fflush(stdout);
+                printf("getFile post lock stat\n");
+            #endif
 
             if(rc)
             {
@@ -1012,6 +1086,7 @@ int getFile(char *sender_name,char *filename,utenti_registrati_t *utenti)
 int inviaMessaggiRemoti(char *sender_name,utenti_registrati_t *utenti)
 {
     int rc;
+
     //controllo sender sia registrato ed online
     utente_t *sender = checkSender(sender_name,utenti,NULL);
 
@@ -1020,6 +1095,9 @@ int inviaMessaggiRemoti(char *sender_name,utenti_registrati_t *utenti)
         //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
         if(errno == EPERM || errno == ENETDOWN || errno == 0)
         {
+            #ifdef DEBUG
+                printf("remoteMessage: 1fail message\n");
+            #endif
             rc = send_fail_message(sender->fd,OP_FAIL,utenti);
         }
         //errore checkSender

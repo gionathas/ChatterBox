@@ -34,7 +34,7 @@ typedef struct server{
 
 /**
  * @struct server_function_t
- * @brief Struttura delle funzioni da passare al server
+ * @brief Struttura per passare al server le sue funzioni vitali
  *
  * @var client_manager_fun funzione per gestire il client
  * @var arg_cmf argomenti per la funzione client_manager_fun
@@ -59,6 +59,24 @@ typedef struct{
     int (*disconnect_client)(int,void*);//1 fd,2 argomenti
     void *arg_dc;
 }server_function_t;
+
+/* Variabile per propagare l'errore con cui fallisce un thread del pool del server */
+extern int server_thread_error;
+
+/* Funzioni vitali del server */
+int (*client_manager_fun)(void *,int,void*);
+void *arg_cmf;
+
+int (*signal_usr_handler)(void*);//argomenti
+void *arg_suh;
+
+int (*client_out_of_bound)(int,void*);
+void *arg_cob;
+
+int (*disconnect_client)(int,void*);
+void *arg_dc;
+
+int (*read_message_fun)(int,void*);
 
 /**
  * @function init_server
@@ -87,5 +105,18 @@ server_t* init_server(char *sockname,size_t messageSize,int max_connection);
  * @note Il server viene terminato con un segnale(SIGTERM,SIGQUIT,SIGINT).
  */
 int start_server(server_t *srv,int num_pool_thread,server_function_t funs);
+
+
+/**
+ * @function listener
+ * @brief Funzione che deve eseguire il listener_thread
+ * @param server istanza del server
+ *
+ * @return EXIT_SUCCESS in caso di successo,altrimenti EXIT_FAILURE
+ *         in questo caso se e' fallito un thread del pool del server
+ *         setta thread_error per propagare il codice dell'errore
+ *         del thread che e' fallito
+ */
+void* listener(void* server);
 
 #endif //SERVER_H_

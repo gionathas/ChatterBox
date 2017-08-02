@@ -22,7 +22,6 @@ done
 
 echo "FINE FOR"
 
-
 # messaggio di errore che mi aspetto
 OP_MSG_TOOLONG=28
 
@@ -40,6 +39,8 @@ if [[ $((256-e)) != $OP_MSG_TOOLONG ]]; then
     exit 1
 fi
 
+echo "fine messaggi errati"
+
 sleep 1
 
 ./client -l $1 -k pippo -C pippo
@@ -51,8 +52,38 @@ sleep 1
 
 read reg online deliv notdeliv filedeliv filenotdeliv errors <<< $(tail -1 $2 | cut -d\  -f 3,4,5,6,7,8,9)
 
-if [[ $reg != 1 || $online != 1 || $deliv != 0 || $notdeliv != 100 || $filedeliv != 0 || $filenotdeliv != 100 || $errors != 2 ]]; then
-    echo "Test statistiche FALLITO"
+if [[ $reg != 1 ]]; then
+    echo "Test statistiche FALLITO: reg errato"
+    exit 1
+fi
+
+if [[ $online != 1 ]]; then
+    echo "Test statistiche FALLITO: online = $online is not 1"
+    exit 1
+fi
+
+if [[ $deliv != 0 ]]; then
+    echo "Test statistiche FALLITO: deliv = $deliv is not 0"
+    exit 1
+fi
+
+if [[ $notdeliv != 100 ]]; then
+    echo "Test statistiche FALLITO: notdelilv = $notdeliv is not 100"
+    exit 1
+fi
+
+if [[ $filedeliv != 0 ]]; then
+    echo "Test statistiche FALLITO: filedeliv = $filedeliv is not 0"
+    exit 1
+fi
+
+if [[ $filenotdeliv != 100 ]]; then
+    echo "Test statistiche FALLITO: filenotdeliv = $filenotdeliv is not 100"
+    exit 1
+fi
+
+if [[ $errors != 2 ]]; then
+    echo "Test statistiche FALLITO: errors = $errors is not 2"
     exit 1
 fi
 

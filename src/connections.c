@@ -12,6 +12,7 @@
 #include<sys/socket.h>
 #include<errno.h>
 #include<sys/un.h>
+#include<string.h>
 #include"connections.h"
 #include"config.h"
 #include"utils.h"
@@ -31,7 +32,6 @@ static inline int connection_closed(int read_result)
         errno = 0;
         return 1;
     }
-
     else
         return 0;
 }
@@ -119,6 +119,10 @@ int readData(long fd, message_data_t *data)
     //leggo prima data header
     rc = read(fd,&data->hdr,sizeof(message_data_hdr_t));
 
+    #ifdef DEBUG
+        printf("readData 1 rc: %d\n",rc);
+    #endif
+
     //connessione chiusa oppure errore nella read
     if(connection_closed(rc))
     {
@@ -133,21 +137,34 @@ int readData(long fd, message_data_t *data)
     //se arrivo qui la connessione con il client e' ancora aperta
 
     //alloco spazio per il buffer del messaggio
-    size_t len = data->hdr.len * sizeof(char);
+    size_t len = (data->hdr.len);
     data->buf = malloc(len);
+    memset(data->buf,0,len);
 
     //allocazione andata male
     error_handler_1(data->buf,NULL,-1);
 
-    //ora posso leggere il buffer del messaggio
-    rc = read(fd,data->buf,len);
+    int byte_read = 0;
 
-    //controllo connessione
-    if(connection_closed(rc))
-        return 0;
-    //altrimenti ritorno esito della read
-    else
-        return rc;
+    while(byte_read < len)
+    {
+        rc = read(fd,(data->buf) + byte_read ,1);
+
+        if(connection_closed(rc))
+            break;
+
+        byte_read += rc;
+    }
+
+    //errore nella read
+    if(errno != 0)
+        return -1;
+
+    #ifdef DEBUG
+        printf("readData 2 rc: %d\n",byte_read);
+    #endif
+
+    return byte_read;
 }
 
 int readMsg(long fd, message_t *msg)
@@ -164,10 +181,6 @@ int readMsg(long fd, message_t *msg)
 
     rc = readHeader(fd,&msg->hdr);
 
-    #ifdef DEBUG
-        printf("header :%d\n",rc);
-    #endif
-
     //controllo connessione chiusa oppure errore nel readHeader
     if(rc <= 0)
     {
@@ -178,10 +191,6 @@ int readMsg(long fd, message_t *msg)
     byte_read += rc;
 
     rc = readData(fd,&msg->data);
-
-    #ifdef DEBUG
-        printf("data :%d\n",rc);
-    #endif
 
     //errore lettura data
     if(rc == -1)
@@ -195,6 +204,9 @@ int readMsg(long fd, message_t *msg)
 
 int sendData(long fd, message_data_t *msg)
 {
+    #ifdef DEBUG
+        printf("inzio sendData\n" );
+    #endif
     int rc;
 
     //controllo parametri
@@ -207,17 +219,39 @@ int sendData(long fd, message_data_t *msg)
     //mando prima header,che contiene la lunghezza del buffer
     rc = write(fd,&msg->hdr,sizeof(message_data_hdr_t));
 
+    #ifdef DEBUG
+        printf("sendData 1 rc: %d\n",rc);
+    #endif
+
+    if(connection_closed(rc))
+    {
+        return 0;
+    }
+
     //esito prima write
     error_handler_1(rc,-1,-1);
 
     //poi mando il buffer
     rc = write(fd,msg->buf,msg->hdr.len * sizeof(char));
 
+    #ifdef DEBUG
+        printf("sendData 2 rc: %d\n",rc);
+    #endif
+
+    if(connection_closed(rc))
+    {
+        return 0;
+    }
+
     //esito seconda write
     error_handler_1(rc,-1,-1);
 
+    #ifdef DEBUG
+        printf("fine sendData\n" );
+    #endif
+
     //tutto andato ok
-    return 0;
+    return rc;
 }
 
 int sendHeader(long fd,message_hdr_t *hdr)
@@ -237,11 +271,17 @@ int sendHeader(long fd,message_hdr_t *hdr)
     //mando header
     rc =  write(fd,hdr,sizeof(message_hdr_t));
 
+
+    if(connection_closed(rc))
+    {
+        return 0;
+    }
+
     //esito write
     error_handler_1(rc,-1,-1);
 
     //tutto ok
-    return 0;
+    return rc;
 }
 
 int sendRequest(long fd, message_t *msg)

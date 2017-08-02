@@ -5,7 +5,7 @@ LIBS_PATH = ../libs
 LIBS = -lserver -lpthread -lchatty -lm -lqueue -lthreadpool
 
 #objects
-server_obj = server_start.o server_init.o
+server_obj = server_start.o server_init.o listener.o
 threadpool_obj = threadpool.o
 queue_obj = queue.o
 chatty_obj = chatty.o connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o chatty_clients.o
@@ -21,6 +21,7 @@ _chatty:
 server:
 	make server_init.o
 	make server_start.o
+	make listener.o
 	make libserver.a
 threadpool:
 	make threadpool.o
@@ -56,6 +57,9 @@ messaggi_utenti.o:messaggi_utenti.c
 	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
 
 gestione_utenti.o:gestione_utenti.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+listener.o:listener.c
 	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
 
 server_start.o:server_start.c

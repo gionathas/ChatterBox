@@ -29,6 +29,10 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
     op_t op = message->hdr.op;
     utente_t *sender;
 
+    #ifdef DEBUG
+        printf("op:%d\n",op);
+    #endif
+
     //analizzo richiesta del client
     switch (op)
     {
@@ -39,6 +43,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //se l'utente risulta GIA' essere registrato con quel nick
             if(rc == 1)
             {
+                #ifdef DEBUG
+                    printf("register: 1 fail message\n");
+                #endif
                 rc = send_fail_message(fd,OP_NICK_ALREADY,utenti);
             }
             //registrazione utente fallita..
@@ -47,6 +54,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido o elenco utenti pieno
                 if(errno == EPERM || errno == ENOMEM)
                 {
+                    #ifdef DEBUG
+                        printf("register: 2 fail message\n");
+                    #endif
                     rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno registrazione
@@ -71,6 +81,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //se l'utente risulta NON essere registrato con quel nick
             if(rc == 1)
             {
+                #ifdef DEBUG
+                    printf("deregister: 1 fail message\n");
+                #endif
                 rc = send_fail_message(fd,OP_NICK_UNKNOWN,utenti);
             }
             //registrazione utente fallita
@@ -79,6 +92,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido
                 if(errno == EPERM)
                 {
+                    #ifdef DEBUG
+                        printf("deregister: 2 fail message\n");
+                    #endif
                     rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno deregistrazione
@@ -103,6 +119,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
             //utente non trovato
             if(rc == 1)
             {
+                #ifdef DEBUG
+                    printf("connect: 1 fail message\n");
+                #endif
                 rc = send_fail_message(fd,OP_NICK_UNKNOWN,utenti);
             }
             //connessione utente fallita
@@ -111,6 +130,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //..nome non valido o utente gia' connesso
                 if(errno == EPERM)
                 {
+                    #ifdef DEBUG
+                        printf("connect: 2 fail message\n");
+                    #endif
                     rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //..errore interno connessione
@@ -138,6 +160,9 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
                 //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
                 if(errno == EPERM || errno == ENETDOWN || errno == 0)
                 {
+                    #ifdef DEBUG
+                        printf("userlist: 1 fail message\n");
+                    #endif
                     rc = send_fail_message(fd,OP_FAIL,utenti);
                 }
                 //errore checkSender
@@ -203,18 +228,19 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
         default:
 
+            #ifdef DEBUG
+                printf("default:sender = %s op: %d\n",sender_name,op);
+                printf("default: 1 fail message\n");
+            #endif
             rc = send_fail_message(fd,OP_FAIL,utenti);
 
             //controllo esito messaggio inviato
             error_handler_1(rc,-1,-1);
+        break;
     }
 
     //libero eventuale memoria allocata nel buffer del messaggio per la lettura
     free(message->data.buf);
-
-    #ifdef DEBUG
-        mostraUtenti(utenti);
-    #endif
 
     //client gestito correttamente
     return 0;
@@ -228,5 +254,8 @@ int chatty_disconnect_client(int fd,utenti_registrati_t *utenti)
 int chatty_clients_overflow(int fd,utenti_registrati_t *utenti)
 {
     //mando OP_FAIL per questo genere di errore
+    #ifdef DEBUG
+        printf("client overflow: fail message\n");
+    #endif
     return send_fail_message(fd,OP_FAIL,utenti);
 }
