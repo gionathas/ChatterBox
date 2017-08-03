@@ -1,5 +1,9 @@
 #!/bin/bash
 
+#Script che si occupa di elimina tutti i file e directory piu vecchi di t minuti all'interno
+#della cartella del server di chatty. Se t vale 0 allora vengono stampati solamente i file al suo
+#interno
+
 #funzione per mostrare l'help
 usage() { echo "Usage: $0 [-p: configuration_file_path <string>] [-t: time < >=0 >] [-h/-help: display_help] " 1>&2; exit 1; }
 
