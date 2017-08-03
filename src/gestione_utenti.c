@@ -62,6 +62,15 @@ static unsigned int hash(char *str,int max)
 }
 
 /**
+ * @function numOfDigits
+ * @brief Restituisce il numero di cifre che compongono un numero
+ */
+static inline int numOfDigits(int x)
+{
+    return (floor(log10 (abs (x))) + 1);
+}
+
+/**
  * @function remove_directory
  * @brief Rimuove una directory e tutti i file al suo interno.
  * @param path path della directory da eiminare
@@ -152,94 +161,6 @@ static int remove_directory(char *path)
    }
 
    return r;
-}
-
-/**
- * @function numOfDigits
- * @brief Restituisce il numero di cifre che compongono un numero
- */
-static inline int numOfDigits(int x)
-{
-    return (floor(log10 (abs (x))) + 1);
-}
-
-/**
- * @function setFD
- * @brief Assegna,non appena possibile,un fd ad un utente che lo richiede.
- * @utente utente che richiede l'fd
- * @fd fd richiesto
- * @return 0 in caso di successo,altrimenti -1 e setta errno.
- */
-static int setFD(utente_t *utente,unsigned int fd)
-{
-    int rc;
-
-    //prendo lock sulla posizione in base all'fd
-    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
-
-    //errore lock
-    error_handler_3(rc,-1);
-
-    //fin quando ci sono altri client con quell'fd,attendo che si disconnettano
-    while(fd_utenti[fd].count != 0)
-    {
-        rc = pthread_cond_wait(&fd_utenti[fd].cond,&fd_utenti[fd].mtx);
-
-        //errore wait
-        if(rc)
-        {
-            //rilascio lock fd utenti
-            pthread_mutex_unlock(&fd_utenti[fd].mtx);
-            errno = rc;
-            return -1;
-        }
-    }
-
-    //a questo punto posso inserire il mio fd
-    utente->fd = fd;
-    //incremento la posizione di quell'fd in quanto utilizzato ora da questo utente
-    ++fd_utenti[fd].count;
-
-    //rilascio lock fd utenti
-    pthread_mutex_unlock(&fd_utenti[fd].mtx);
-
-    return 0;
-}
-
-/**
- * @function setFD
- * @brief Rimuove un fd da un utente che non ne fa piu utilizzo
- * @utente utente che richiede la Rimozione
- * @fd fd da rimuovere
- * @return 0 in caso di successo,altrimenti -1 e setta errno.
- */
-static int unsetFD(unsigned int fd)
-{
-    int rc;
-
-    rc = pthread_mutex_lock(&fd_utenti[fd].mtx);
-
-    //errore lock
-    error_handler_3(rc,-1);
-
-    //decremento il contatore di quell'fd in quanto non e' piu' utilizzato da questo utente
-    --fd_utenti[fd].count;
-
-    //sveglio eventuale utente in attesa del fd
-    rc = pthread_cond_signal(&fd_utenti[fd].cond);
-
-    if(rc)
-    {
-        //rilascio lock fd utenti
-        pthread_mutex_unlock(&fd_utenti[fd].mtx);
-        errno = rc;
-        return -1;
-    }
-
-    //rilascio lock fd utenti
-    pthread_mutex_unlock(&fd_utenti[fd].mtx);
-
-    return 0;
 }
 
 /**
@@ -585,25 +506,6 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     Utenti->elenco[hashIndex].n_remote_message = 0;
     Utenti->elenco[hashIndex].fd = fd;
 
-    /*
-       Per inserire l'fd relativo a questo utente devo assicurarmi che nessun altro utente
-       stia utilizzando lo stesso fd. Questo puo' accadere quando un utente si disconnette e un altro
-       si riconnette con lo stesso fd
-
-
-       rc = setFD(&Utenti->elenco[hashIndex],fd);
-
-       //controllo esito setFD
-       if(rc == -1)
-       {
-           //rilascio lock utente inserito
-           pthread_mutex_unlock(&Utenti->elenco[hashIndex].mtx);
-           return -1;
-       }
-
-       */
-    //creo la directory personale dell'utente:
-
     //creo il path..
     rc = snprintf(Utenti->elenco[hashIndex].personal_dir,MAX_CLIENT_DIR_LENGHT,"%s/%s",Utenti->media_dir,name);
 
@@ -666,9 +568,6 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
     //setto flag per segnalare che la posizione da ora in poi e' libera
     utente->isInit = 0;
 
-    //rimuovo l'fd da lui utilizzato per connettersi
-    //rc = unsetFD(utente->fd);
-
     //setto un fd invalido
     utente->fd = 0;
 
@@ -715,17 +614,6 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     utente->isOnline = 1;
     utente->fd = fd;
 
-    /*
-    rc = setFD(utente,fd);
-
-    if(rc == -1)
-    {
-        //rilascio lock utente
-        pthread_mutex_unlock(&utente->mtx);
-        return -1;
-    }
-
-    */
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
 
@@ -759,7 +647,6 @@ int disconnectUtente(unsigned int fd,utenti_registrati_t *Utenti)
             //fd combacia
             if(utente->fd == fd)
             {
-                //unsetFD(fd);
                 utente->isOnline = 0;
                 utente->fd = 0;
                 find = 1;
@@ -887,7 +774,7 @@ int mostraUtentiOnline(char *buff,size_t *size_buff,int *new_size,utenti_registr
     return 0;
 }
 
-int eliminaElenco(utenti_registrati_t *Utenti)
+int eliminaElencoUtenti(utenti_registrati_t *Utenti)
 {
     int rc;
 
@@ -925,16 +812,6 @@ int eliminaElenco(utenti_registrati_t *Utenti)
             errno = rc;
             return -1;
         }
-    }
-
-    //elimino tutta la directory del server
-    rc = remove_directory(Utenti->media_dir);
-
-    if(rc == -1)
-    {
-        free(Utenti->elenco);
-        free(Utenti);
-        return -1;
     }
 
     //libero memoria

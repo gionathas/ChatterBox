@@ -72,12 +72,12 @@ static int server_disconnect_client(int fd,void *utenti)
 }
 
 /* Distruzione strutture utilizzate da chatty */
-static int chatty_close(char *stat_file_path)
+static int chatty_close(char *stat_file_path,char *chatty_server_path)
 {
     int rc;
 
     //elimino tutto elenco degli utenti registrati
-    rc = eliminaElenco(chattyUtenti);
+    rc = eliminaElencoUtenti(chattyUtenti);
 
     rc = pthread_mutex_destroy(&mtx_chatty_stat);
 
@@ -188,7 +188,7 @@ int main(int argc, char *argv[])
     }
 
     //Se il server e' terminato correttamente,termino normalmente
-    rc = chatty_close(config.stat_file_name);
+    rc = chatty_close(config.stat_file_name,config.dirname);
 
     //chiusura fallita
     if(rc == -1)
@@ -203,7 +203,7 @@ int main(int argc, char *argv[])
 /* A seguire error handler di chatty,se non sono stati riscontrati errori,non si arriva mai qui */
 main_error2:
     //elimino elenco utenti
-    eliminaElenco(chattyUtenti);
+    eliminaElencoUtenti(chattyUtenti);
     goto main_error1;
 
 //errore handler

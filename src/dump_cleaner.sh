@@ -30,9 +30,6 @@ while getopts "hp:t:" opt; do
 done
 shift $((OPTIND-1))
 
-echo "time = ${TIME}"
-echo "path = ${CONF_FILE}"
-
 #controllo parametri
 
 #variabile per controllare se stiamo lavorando effetivamente con un file di configurazione di chatty
@@ -75,12 +72,6 @@ do
     fi
 
 done < "$CONF_FILE"
-
-#la directory su cui ora vado a lavorare pero', e' un dump della cartella del server,fatto dal server stesso,
-#che si chiamera' DIRNAME_dump
-
-DIRNAME+="_dump"
-echo $DIRNAME
 
 #se TIME vale 0,allora devo solo stampare tutti i file presenti nella cartella
 if [ $TIME -eq 0 ];then

@@ -159,6 +159,6 @@ int connectUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti);
  * @param Utenti elenco utenti
  * @return 0 in caso di successo, -1 errore e setta errno
  */
-int eliminaElenco(utenti_registrati_t *Utenti);
+int eliminaElencoUtenti(utenti_registrati_t *Utenti);
 
 #endif /*UTENTI_H_ */
