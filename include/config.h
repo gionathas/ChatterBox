@@ -22,6 +22,10 @@
 
 /* Numero caratteri massimo dei nickname */
 #define MAX_NAME_LENGTH 32
+/* Numero massimo di utenti di un gruppo */
+#define MAX_USER_FOR_GROUP 100
+/* Numero massimo di gruppi a cui puo' essere iscritto un utente */
+#define MAX_GROUPS_FOR_USER 10
 /* Numero caratteri massimo dei path  */
 #define UNIX_PATH_MAX 80
 /* Numero caratteri massimo di una riga del file di conf */
@@ -29,7 +33,9 @@
 /* Numero caratteri massimo di un campo all'interno di unra riga del file di config */
 #define MAX_SIZE_FIELD 65
 /* Numero massimo di utenti registrabili  */
-#define MAX_USERS 20
+#define MAX_USERS 200
+/* Numero massimo di gruppi registrabili  */
+#define MAX_GROUPS 200
 /* Numero massimo di caratteri per l'identificatore di un file o messaggio */
 #define MAX_ID_LENGTH 2
 /* Numero massimo di caratteri per il path della directory degli utenti */

@@ -10,7 +10,14 @@
 
 #include"config.h"
 #include"utenti.h"
+#include "gruppi.h"
 #include"message.h"
+
+//argomenti da passare alle funzioni del server di chatty
+typedef struct{
+    utenti_registrati_t *utenti;
+    gruppi_registrati_t *gruppi;
+}chatty_arg_t;
 
 /**
  * @function chatty_parser
@@ -29,7 +36,7 @@ int chatty_parser(char *pathfile,server_config_t *config);
  * @param utenti elenco utenti registrati
  * @return 0 richiesta gestita correttamente,altrimenti -1 e setta errno.
  */
-int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti);
+int chatty_client_manager(message_t *message,int fd,chatty_arg_t *chatty);
 
 /**
  * @function chatty_clients_overflow

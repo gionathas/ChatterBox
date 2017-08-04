@@ -8,7 +8,7 @@ LIBS = -lserver -lpthread -lchatty -lm -lqueue -lthreadpool
 server_obj = server_start.o server_init.o listener.o
 threadpool_obj = threadpool.o
 queue_obj = queue.o
-chatty_obj = chatty.o connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o chatty_clients.o
+chatty_obj = chatty.o connections.o chatty_parser.o messaggi_utenti.o gestione_utenti.o gestione_gruppi.o chatty_clients.o
 
 #target
 _chatty:
@@ -16,6 +16,7 @@ _chatty:
 	make chatty_parser.o
 	make messaggi_utenti.o
 	make gestione_utenti.o
+	make gestione_gruppi.o
 	make chatty_clients.o
 	make libchatty.a
 server:
@@ -57,6 +58,9 @@ messaggi_utenti.o:messaggi_utenti.c
 	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
 
 gestione_utenti.o:gestione_utenti.c
+	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
+
+gestione_gruppi.o:gestione_gruppi.c
 	$(CC) $(CFLAGS) -I $(INCLUDES) -c $<
 
 listener.o:listener.c

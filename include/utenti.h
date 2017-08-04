@@ -7,8 +7,12 @@
  */
 #ifndef UTENTI_H_
 #define UTENTI_H_
+
 #include<pthread.h>
+#include"gruppi.h"
 #include"config.h"
+
+typedef struct gruppo gruppo_t;
 
 #define USER_ERR_HANDLER(err,val,ret)         \
     do{if( (err) == (val)){return (ret);} }while(0)
@@ -16,6 +20,7 @@
 /**
  * @struct utente_t
  * @brief struttura utente di chatty
+ * @note la definizione della struttura utente e' stata fatta in gruppi.h
  * @var nickname nickname utente
  * @var isOnline flag per segnalare se l'utente e' online
  * @var isInit flag per controllare se un utente e' stato inizializzato
@@ -24,8 +29,10 @@
  * @var mtx mutex per sincronizzazioni per accesso dati dell'utente
  * @var personal_dir path della directory personale dell'utente
  * @var n_remote_message numero di messaggi remoti che si trovano nella cartella personale dell'utente
+ * @var gruppi_iscritto insieme di puntatatori a gruppi a cui l'utente risulata essere iscritto
+ * @var n_gruppi_iscritto numero attuale di gruppi a cui e' iscritto l'utente
  */
-typedef struct{
+struct utente{
     char nickname[MAX_NAME_LENGTH + 1];
     unsigned short isOnline; //0 offline,1 online
     unsigned short isInit; //0 unitialized, 1 inizializzata
@@ -33,7 +40,9 @@ typedef struct{
     pthread_mutex_t mtx;
     char personal_dir[MAX_CLIENT_DIR_LENGHT + 1];
     unsigned int n_remote_message;
-}utente_t;
+    struct gruppo *gruppi_iscritto[MAX_GROUPS_FOR_USER];
+    unsigned short n_gruppi_iscritto;
+};//utente_t
 
 /**
  * @struct utenti_registrati_t
@@ -48,7 +57,7 @@ typedef struct{
  * @warning il puntatore a stat,va passato con i valori all'interno inizializzati
  */
 typedef struct{
-    utente_t *elenco;
+    struct utente *elenco;
     struct statistics *stat;
     pthread_mutex_t *mtx_stat;
     size_t max_msg_size;
@@ -83,7 +92,7 @@ typedef struct{
  *
  * @warning se l'utente e' stato trovato viene ritornato con la lock su di esso.
  */
- utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos);
+ struct utente *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos);
 
 /**
  * @function registraUtente

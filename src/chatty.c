@@ -27,6 +27,7 @@
 #include"chatty_task.h"
 #include"stats.h"
 #include"utenti.h"
+#include"gruppi.h"
 
 #define STRING_ERROR_SIZE 100
 
@@ -36,8 +37,9 @@
 struct statistics chattyStats = { 0,0,0,0,0,0,0 };
 pthread_mutex_t mtx_chatty_stat;//mutex per proteggere chattyStats
 
-/* Utenti registrati di chatty */
+/* Utenti e gruppi registrati di chatty */
 utenti_registrati_t *chattyUtenti;
+gruppi_registrati_t *chattyGruppi;
 
 /* Funzioni di utilita' */
 static void usage(const char *progname) {
@@ -61,9 +63,9 @@ static int server_client_overflow(int fd,void *utenti)
     return chatty_clients_overflow(fd,(utenti_registrati_t*)utenti);
 }
 
-static int server_client_manager(void *msg,int fd,void* chatty_utenti)
+static int server_client_manager(void *msg,int fd,void* arg)
 {
-    return chatty_client_manager((message_t*)msg,fd,(utenti_registrati_t*)chatty_utenti);
+    return chatty_client_manager((message_t*)msg,fd,(chatty_arg_t*)arg);
 }
 
 static int server_disconnect_client(int fd,void *utenti)
@@ -79,6 +81,8 @@ static int chatty_close(char *stat_file_path,char *chatty_server_path)
     //elimino tutto elenco degli utenti registrati
     rc = eliminaElencoUtenti(chattyUtenti);
 
+    rc = eliminaGruppi(chattyGruppi);
+
     rc = pthread_mutex_destroy(&mtx_chatty_stat);
 
     //ritorno esito operazioni
@@ -92,6 +96,7 @@ int main(int argc, char *argv[])
     server_t *server; //istanza del server
     server_config_t config; //variabile per salvare la configurazione attuale del server
     server_function_t funs; //funzioni utili per il server
+    chatty_arg_t arg;
     int c;// di supporto al parsing degli argomenti
     char *config_path = NULL;//path del file che contiene la configurazione del server
 
@@ -136,6 +141,15 @@ int main(int argc, char *argv[])
         goto main_error1;
     }
 
+    chattyGruppi = inizializzaGruppiRegistrati();
+
+    if(chattyGruppi == NULL)
+    {
+        snprintf(string_error,STRING_ERROR_SIZE,"Chatty: Errore inizializzazione gruppi");
+        curr_error = errno;
+        goto main_error1;
+    }
+
     //inizializzo e configuro il server
     server = init_server(config.serverpath,sizeof(message_t),config.max_connection);
 
@@ -143,8 +157,12 @@ int main(int argc, char *argv[])
     {
         snprintf(string_error,STRING_ERROR_SIZE,"Chatty: Errore inizializzazione server");
         curr_error = errno;
-        goto main_error2;
+        goto main_error3;
     }
+
+    //inizializzo argomenti per le funzioni del server
+    arg.utenti = chattyUtenti;
+    arg.gruppi = chattyGruppi;
 
     //inizializzo funzioni per il server
 
@@ -160,7 +178,7 @@ int main(int argc, char *argv[])
     funs.arg_suh = config.stat_file_name;
     //funzione per gestire comunicazione con il client
     funs.client_manager_fun = server_client_manager;
-    funs.arg_cmf = (void*)chattyUtenti;
+    funs.arg_cmf = (void*)&arg;
     //funzione per la disconnessione di un client
     funs.disconnect_client = server_disconnect_client;
     funs.arg_dc = (void*)chattyUtenti;
@@ -177,13 +195,13 @@ int main(int argc, char *argv[])
             //setto messaggio errore
             snprintf(string_error,STRING_ERROR_SIZE,"Chatty: Server terminato con errore");
             curr_error = errno;
-            goto main_error2;
+            goto main_error3;
         }
         //un thread del pool del server e' terminato erroneamente
         else{
             snprintf(string_error,STRING_ERROR_SIZE,"Chatty: Un thread del server e' terminato con errore");
             curr_error = rc;
-            goto main_error2;
+            goto main_error3;
         }
     }
 
@@ -201,6 +219,9 @@ int main(int argc, char *argv[])
     exit(EXIT_SUCCESS);
 
 /* A seguire error handler di chatty,se non sono stati riscontrati errori,non si arriva mai qui */
+main_error3:
+    eliminaGruppi(chattyGruppi);
+    goto main_error2;
 main_error2:
     //elimino elenco utenti
     eliminaElencoUtenti(chattyUtenti);

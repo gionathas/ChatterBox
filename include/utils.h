@@ -12,6 +12,7 @@
 #include<stdio.h>
 #include<pthread.h>
 #include<stdlib.h>
+#include<math.h>
 #include"threadpool.h"
 
 #define NO_ERROR_THREADS 0
@@ -33,6 +34,32 @@
 
 #define th_error_main(err,m)   \
     if((err) != NO_ERROR_THREADS) {errno=(err);perror(m);exit(EXIT_FAILURE);}
+
+/**
+ * @function hash
+ * @brief Algoritmo di hashing per stringhe
+ * @author Dan Bernstein
+ * @return codice hash per accedere ad un particolare elemento dell'elenco degli utenti
+ */
+static inline unsigned int hash(char *str,int max)
+{
+    unsigned long hash = 5381;
+    int c;
+
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+    return hash % max;
+}
+
+/**
+ * @function numOfDigits
+ * @brief Restituisce il numero di cifre che compongono un numero
+ */
+static inline int numOfDigits(int x)
+{
+    return (floor(log10 (abs (x))) + 1);
+}
 
 
 #endif

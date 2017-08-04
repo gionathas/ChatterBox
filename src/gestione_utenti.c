@@ -22,54 +22,7 @@
 #include"utils.h"
 
 #define DEBUG
-
-/* Size dell'array che contiene gli fd degli utenti */
-#define FD_UTENTI_LEN (MAX_USERS) + 4
-
-/**
- * @struct fd_utente_t
- * @brief Struttura per gestire un fd relativo ad un utente
- * @var count numero attuale di utenti che attendo l'fd
- * @var mtx mutex per sincronizzazione
- * @var cond var cond per sincronizzazione
- */
-typedef struct{
-    int count;
-    pthread_mutex_t mtx;
-    pthread_cond_t cond;
-}fd_utente_t;
-
-/* Insieme degli fd degli utenti,viene utilizzato per tener conto di quali fd sono attualmente utilizzati dagli utenti*/
-static fd_utente_t fd_utenti[FD_UTENTI_LEN];
-
 /* FUNZIONI DI SUPPORTO */
-
-/**
- * @function hash
- * @brief Algoritmo di hashing per stringhe
- * @author Dan Bernstein
- * @return codice hash per accedere ad un particolare elemento dell'elenco degli utenti
- */
-static unsigned int hash(char *str,int max)
-{
-    unsigned long hash = 5381;
-    int c;
-
-    while ((c = *str++))
-        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-
-    return hash % max;
-}
-
-/**
- * @function numOfDigits
- * @brief Restituisce il numero di cifre che compongono un numero
- */
-static inline int numOfDigits(int x)
-{
-    return (floor(log10 (abs (x))) + 1);
-}
-
 /**
  * @function remove_directory
  * @brief Rimuove una directory e tutti i file al suo interno.
@@ -242,8 +195,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
     utenti_registrati_t *utenti = malloc(sizeof(utenti_registrati_t));
 
     //allocazione andata male
-    if(utenti == NULL)
-        return NULL;
+    error_handler_1(utenti,NULL,NULL);
 
     //alloco spazio per elenco,iniziaizzando valori statici all'interno
     utenti->elenco = calloc(MAX_USERS,sizeof(utente_t));
@@ -284,31 +236,7 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
     utenti->max_hist_msgs = hist_size;
     strncpy(utenti->media_dir,dirpath,MAX_SERVER_DIR_LENGTH);
 
-    //inizializzo struttura per gestire gli fd degli utenti
-    for (size_t i = 0; i < FD_UTENTI_LEN; i++)
-    {
-        fd_utenti[i].count = 0;
-        rc = pthread_mutex_init(&fd_utenti[i].mtx,NULL);
-        rc = pthread_cond_init(&fd_utenti[i].cond,NULL);
-
-        //errore inizializzazione struttura
-        if(rc)
-        {
-            //dealloco tutto
-            for (size_t i = 0; i < MAX_USERS; i++)
-            {
-                pthread_mutex_destroy(&utenti->elenco[i].mtx);
-            }
-
-            free(utenti->elenco);
-            free(utenti);
-
-            errno = rc;
-            return NULL;
-        }
-    }
-
-    //creo la directory del server,se non e' gia' presente
+    //creo la directory del server per mantenere info sugli utenti,se non e' gia' presente
     if (stat(dirpath, &st) == -1)
     {
         errno = 0;
@@ -323,12 +251,6 @@ utenti_registrati_t *inizializzaUtentiRegistrati(int msg_size,int file_size,int 
             for (size_t i = 0; i < MAX_USERS; i++)
             {
                 pthread_mutex_destroy(&utenti->elenco[i].mtx);
-            }
-
-            for (size_t i = 0; i < FD_UTENTI_LEN; i++)
-            {
-                pthread_mutex_destroy(&fd_utenti[i].mtx);
-                pthread_cond_destroy(&fd_utenti[i].cond);
             }
 
             free(utenti->elenco);
@@ -376,8 +298,6 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
     //fin quando trovo utenti inizializzati
     while(Utenti->elenco[hashIndex].isInit)
     {
-        int i = 2;
-
         //se i nick sono uguali,abbiamo trovato l'utente
         if(strcmp(Utenti->elenco[hashIndex].nickname,name) == 0)
         {
@@ -404,11 +324,8 @@ utente_t *cercaUtente(char *name,utenti_registrati_t *Utenti,int *pos)
             break;
         }
 
-
         //prendo lock per prossimo utente
         rc = pthread_mutex_lock(&Utenti->elenco[hashIndex].mtx);
-
-        i++;
 
         //errore lock
         error_handler_3(rc,NULL);
@@ -505,6 +422,7 @@ int registraUtente(char *name,unsigned int fd,utenti_registrati_t *Utenti)
     Utenti->elenco[hashIndex].isOnline = 1;
     Utenti->elenco[hashIndex].n_remote_message = 0;
     Utenti->elenco[hashIndex].fd = fd;
+    Utenti->elenco[hashIndex].n_gruppi_iscritto = 0;
 
     //creo il path..
     rc = snprintf(Utenti->elenco[hashIndex].personal_dir,MAX_CLIENT_DIR_LENGHT,"%s/%s",Utenti->media_dir,name);
@@ -570,6 +488,8 @@ int deregistraUtente(char *name,utenti_registrati_t *Utenti)
 
     //setto un fd invalido
     utente->fd = 0;
+
+    //TODO rimuovere l'utente da tutti i gruppi a cui e' iscritto
 
     //rilascio lock utente
     pthread_mutex_unlock(&utente->mtx);
@@ -790,21 +710,6 @@ int eliminaElencoUtenti(utenti_registrati_t *Utenti)
         rc = pthread_mutex_destroy(&Utenti->elenco[i].mtx);
 
         //esito init
-        if(rc)
-        {
-            free(Utenti->elenco);
-            free(Utenti);
-            errno = rc;
-            return -1;
-        }
-    }
-
-    for (size_t i = 0; i < FD_UTENTI_LEN; i++)
-    {
-        rc = pthread_mutex_destroy(&fd_utenti[i].mtx);
-        rc = pthread_cond_destroy(&fd_utenti[i].cond);
-
-        //errore distruzione mutex o cond
         if(rc)
         {
             free(Utenti->elenco);

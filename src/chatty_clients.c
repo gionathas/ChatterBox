@@ -15,18 +15,21 @@
 #include"config.h"
 #include"ops.h"
 #include"utenti.h"
+#include"gruppi.h"
 #include"messaggi_utenti.h"
 #include"utils.h"
 
 #define DEBUG
 
 /* FUNZIONI INTERFACCIA */
-int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
+int chatty_client_manager(message_t *message,int fd,chatty_arg_t *chatty)
 {
     int rc;
     char *sender_name = message->hdr.sender;
     char *receiver_name = message->data.hdr.receiver;
     op_t op = message->hdr.op;
+    utenti_registrati_t *utenti = chatty->utenti;
+    gruppi_registrati_t *gruppi = chatty->gruppi;
     utente_t *sender;
 
     #ifdef DEBUG
@@ -225,6 +228,136 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
             break;
 
+        case CREATEGROUP_OP:
+
+            //controllo sender sia registrato ed online
+            sender = checkSender(sender_name,utenti,NULL);
+
+            if(sender == NULL)
+            {
+                //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+                if(errno == EPERM || errno == ENETDOWN || errno == 0)
+                {
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
+                }
+                //errore checkSender
+                else{
+                    return -1;
+                }
+            }
+            //altrimenti sender valido,invio risposta e rilascio lock dell'utente
+            else{
+
+                rc = RegistraGruppo(sender,receiver_name,gruppi);
+
+                //rilacio lock sul sender
+                pthread_mutex_unlock(&sender->mtx);
+
+                //gruppo create correttamente
+                if(rc == 0)
+                {
+                    rc = send_ok_message(fd,"",0);
+                }
+
+                //caso in cui l'utente e' iscritto a troppi gruppi oppure non c'e' piu spazio per registrare il gruppo
+                //oppure il gruppo risulta gia' essere registrato con quel nome
+                if( (rc == -1 && (errno == ENOMEM || errno == EPERM)) || rc == 1 )
+                {
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
+                }
+
+            }
+
+            //controllo esito messaggio inviato
+            error_handler_1(rc,-1,-1);
+
+            break;
+
+        case ADDGROUP_OP:
+
+            //controllo sender sia registrato ed online
+            sender = checkSender(sender_name,utenti,NULL);
+
+            if(sender == NULL)
+            {
+                //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+                if(errno == EPERM || errno == ENETDOWN || errno == 0)
+                {
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
+                }
+                //errore checkSender
+                else{
+                    return -1;
+                }
+            }
+            else
+            {
+                rc = iscrizioneGruppo(sender,receiver_name,gruppi);
+
+                //rilacio lock sul sender
+                pthread_mutex_unlock(&sender->mtx);
+
+                //gruppo create correttamente
+                if(rc == 0)
+                {
+                    rc = send_ok_message(fd,"",0);
+                }
+
+                //caso in cui l'utente e' iscritto a troppi gruppi oppure e' gia registrato a questo gruppo
+                //oppure il gruppo risulta non esistere
+                if( (rc == -1 && (errno == EALREADY || errno == EPERM)) || rc == 1 )
+                {
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
+                }
+            }
+
+            //controllo esito messaggio inviato
+            error_handler_1(rc,-1,-1);
+
+            break;
+
+        case DELGROUP_OP:
+
+            //controllo sender sia registrato ed online
+            sender = checkSender(sender_name,utenti,NULL);
+
+            if(sender == NULL)
+            {
+                //se il nome del sender non e' valido,oppure il sender non e' online,oppure non e' registrato
+                if(errno == EPERM || errno == ENETDOWN || errno == 0)
+                {
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
+                }
+                //errore checkSender
+                else{
+                    return -1;
+                }
+            }
+            else
+            {
+                rc = disiscrizioneGruppo(sender,receiver_name,gruppi);
+
+                //rilacio lock sul sender
+                pthread_mutex_unlock(&sender->mtx);
+
+                //gruppo create correttamente
+                if(rc == 0)
+                {
+                    rc = send_ok_message(fd,"",0);
+                }
+
+                //caso in cui l'utente e' iscritto a troppi gruppi oppure e' gia registrato a questo gruppo
+                //oppure il gruppo risulta non esistere
+                if( (rc == -1 && (errno == ENOENT)) || rc == 1 )
+                {
+                    rc = send_fail_message(fd,OP_FAIL,utenti);
+                }
+            }
+
+            //controllo esito messaggio inviato
+            error_handler_1(rc,-1,-1);
+
+            break;
 
         default:
 
@@ -241,6 +374,8 @@ int chatty_client_manager(message_t *message,int fd,utenti_registrati_t *utenti)
 
     //libero eventuale memoria allocata nel buffer del messaggio per la lettura
     free(message->data.buf);
+
+    mostraGruppi(gruppi);
 
     //client gestito correttamente
     return 0;
